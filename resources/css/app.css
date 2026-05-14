@@ -1,0 +1,88 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+    :root {
+        --primary: #001e40;
+        --primary-container: #003366;
+        --on-primary: #ffffff;
+        --secondary: #575f67;
+        --background: #f9f9fe;
+        --surface: #f9f9fe;
+        --outline-variant: #c3c6d1;
+    }
+
+    body {
+        @apply bg-[#f9f9fe] text-[#1a1c1f] font-sans antialiased;
+        min-height: max(884px, 100dvh);
+    }
+
+    h1 {
+        @apply text-[24px] font-semibold leading-8 tracking-tight text-[#001e40];
+    }
+
+    h2 {
+        @apply text-[20px] font-semibold leading-7 tracking-tight text-[#001e40];
+    }
+}
+
+@layer components {
+    .font-h1 { font-size: 24px; line-height: 32px; font-weight: 600; letter-spacing: -0.02em; }
+    .font-h2 { font-size: 20px; line-height: 28px; font-weight: 600; letter-spacing: -0.01em; }
+    .font-body-md { font-size: 14px; line-height: 20px; font-weight: 400; }
+    .font-label-sm { font-size: 12px; line-height: 16px; font-weight: 500; }
+    .text-badge { font-size: 11px; line-height: 12px; font-weight: 700; }
+    .text-table-data { font-size: 13px; line-height: 18px; font-weight: 400; }
+
+    .btn-primary {
+        @apply bg-[#001e40] text-white px-4 py-2 rounded-md hover:bg-[#003366] transition-colors font-medium text-sm flex items-center justify-center gap-2;
+    }
+
+    .card {
+        @apply bg-white border border-[#c3c6d1] rounded-lg shadow-sm overflow-hidden;
+    }
+
+    .flow-line { @apply relative; }
+    .flow-line::after {
+        content: '';
+        @apply absolute top-1/2 -right-6 w-6 h-[2px] bg-[#c3c6d1] z-0 hidden md:block;
+    }
+
+    /* Livewire Navigation Progress Bar */
+    .livewire-progress-bar {
+        @apply fixed top-0 left-0 w-full h-[3px] z-[9999] pointer-events-none;
+        background: linear-gradient(to right, #799dd6, #001e40);
+    }
+
+    [wire\:navigate] + .livewire-progress-bar,
+    .livewire-progress-bar {
+        @apply bg-[#001e40];
+    }
+
+    /* Explicit Spacing Utilities (Fallback) */
+    .p-gutter { padding: 16px; }
+    .p-container-padding { padding: 24px; }
+    .p-table-cell-padding { padding: 8px 12px; }
+    .mb-gutter { margin-bottom: 16px; }
+    .gap-gutter { gap: 16px; }
+    .gap-form-gap { gap: 12px; }
+
+    /* Custom scrollbar for high-density tables */
+    .custom-scrollbar::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+        background: #f1f1f1;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+        background: #c3c6d1;
+        border-radius: 4px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+        background: #737780;
+    }
+}
