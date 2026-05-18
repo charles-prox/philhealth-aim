@@ -1,28 +1,64 @@
-<x-app-layout>
+<?php
+
+use App\Models\ProcurementFolder;
+use Livewire\Volt\Component;
+use Livewire\Attributes\Layout;
+use Livewire\WithPagination;
+
+new #[Layout('layouts.app')] class extends Component
+{
+    use WithPagination;
+
+    public $search = '';
+
+    public function updatingSearch()
+    {
+        $this->resetPage();
+    }
+
+    public function with(): array
+    {
+        $query = ProcurementFolder::with(['purchaseOrder', 'prItems']);
+
+        if ($this->search) {
+            $query->where('tracking_number', 'like', '%' . $this->search . '%')
+                  ->orWhere('overall_purpose', 'like', '%' . $this->search . '%')
+                  ->orWhere('requesting_unit', 'like', '%' . $this->search . '%')
+                  ->orWhereHas('purchaseOrder', function($q) {
+                      $q->whereHas('supplier', function($sq) {
+                          $sq->where('name', 'like', '%' . $this->search . '%');
+                      });
+                  });
+        }
+
+        $folders = $query->orderBy('created_at', 'desc')->paginate(10);
+
+        return [
+            'folders' => $folders,
+            'totalActive' => ProcurementFolder::whereNotIn('status', ['PO_RELEASED'])->count(),
+            'totalPending' => ProcurementFolder::where('status', 'DRAFT')->count(),
+            'totalValue' => \App\Models\PurchaseOrder::sum('total_amount') ?? 0,
+            'avgTurnaround' => 0, // Placeholder until delivery logic is implemented
+        ];
+    }
+}; ?>
+
+<div>
     @section('header_title', 'Procurement')
 
     @push('header_actions')
         <x-primary-button icon="add">New PR</x-primary-button>
     @endpush
 
-    {{-- Page variables (replace with real data when connected) --}}
-    @php
-        $prs = collect([
-            ['id' => 'PR-2024-00124', 'date' => 'Oct 12, 2024', 'supplier' => 'Advantage Medical Systems', 'status' => 'PENDING',   'delivered' => 0,  'total' => 50,  'status_color' => 'bg-[#ffdbca] text-[#341100]'],
-            ['id' => 'PR-2024-00120', 'date' => 'Oct 10, 2024', 'supplier' => 'Global Tech Solutions Inc.', 'status' => 'RFQ_SENT', 'delivered' => 45, 'total' => 100, 'status_color' => 'bg-[#d8e1ea] text-[#5b646b]'],
-            ['id' => 'PO-2024-00088', 'date' => 'Oct 08, 2024', 'supplier' => 'PaperCo Philippines',       'status' => 'DELIVERED', 'delivered' => 200,'total' => 200, 'status_color' => 'bg-[#d5e3ff] text-[#001b3c]'],
-        ]);
-    @endphp
-
     <div class="p-container-padding bg-background space-y-6">
 
         {{-- KPI Bento Grid --}}
         <div class="grid grid-cols-2 md:grid-cols-4 gap-gutter">
             @php $kpis = [
-                ['label' => 'Active Requests',    'value' => $prs->count() > 0 ? 42   : null, 'sub' => '+5% from last week',    'icon' => 'description',     'icon_bg' => 'bg-[#001e40]/8',   'icon_color' => 'text-[#001e40]', 'trend' => 'up',   'trend_color' => 'text-green-700'],
-                ['label' => 'Total PR Value',     'value' => $prs->count() > 0 ? '₱1.24M' : null, 'sub' => 'Fiscal Year 2024', 'icon' => 'account_balance_wallet', 'icon_bg' => 'bg-[#d5e3ff]/60', 'icon_color' => 'text-[#1f477b]', 'trend' => null,   'trend_color' => ''],
-                ['label' => 'Pending Approval',   'value' => $prs->count() > 0 ? 12   : null, 'sub' => 'Immediate attention',   'icon' => 'pending_actions',  'icon_bg' => 'bg-[#ffdad6]/60', 'icon_color' => 'text-[#ba1a1a]', 'trend' => 'alert','trend_color' => 'text-[#ba1a1a]'],
-                ['label' => 'Avg Turnaround',     'value' => $prs->count() > 0 ? '5.2d': null, 'sub' => 'Within KPI target',    'icon' => 'timer',            'icon_bg' => 'bg-green-50',      'icon_color' => 'text-green-700', 'trend' => 'check', 'trend_color' => 'text-green-700'],
+                ['label' => 'Active Requests',    'value' => $totalActive > 0 ? $totalActive : null, 'sub' => 'Ongoing tracking',    'icon' => 'description',     'icon_bg' => 'bg-[#001e40]/8',   'icon_color' => 'text-[#001e40]', 'trend' => 'up',   'trend_color' => 'text-green-700'],
+                ['label' => 'Total PO Value',     'value' => $totalValue > 0 ? '₱'.number_format($totalValue/1000000, 2).'M' : null, 'sub' => 'Awarded & Released', 'icon' => 'account_balance_wallet', 'icon_bg' => 'bg-[#d5e3ff]/60', 'icon_color' => 'text-[#1f477b]', 'trend' => null,   'trend_color' => ''],
+                ['label' => 'Pending Action',   'value' => $totalPending > 0 ? $totalPending : null, 'sub' => 'Draft / Unawarded',   'icon' => 'pending_actions',  'icon_bg' => 'bg-[#ffdad6]/60', 'icon_color' => 'text-[#ba1a1a]', 'trend' => 'alert','trend_color' => 'text-[#ba1a1a]'],
+                ['label' => 'Avg Turnaround',     'value' => $avgTurnaround > 0 ? $avgTurnaround.'d': null, 'sub' => 'Delivery time',    'icon' => 'timer',            'icon_bg' => 'bg-green-50',      'icon_color' => 'text-green-700', 'trend' => 'check', 'trend_color' => 'text-green-700'],
             ] @endphp
 
             @foreach($kpis as $kpi)
@@ -51,13 +87,20 @@
         </div>
 
         {{-- PR Table --}}
-        <div class="bg-white border border-[#c3c6d1] rounded-xl shadow-sm overflow-hidden">
+        <div class="bg-white border border-[#c3c6d1] rounded-xl shadow-sm overflow-hidden relative">
+            <div wire:loading class="absolute inset-x-0 bottom-0 top-[45px] bg-white/60 backdrop-blur-[2px] z-50 flex items-center justify-center transition-all">
+                <div class="flex flex-col items-center gap-2">
+                    <div class="w-10 h-10 border-4 border-[#eeedf2] border-t-[#001e40] rounded-full animate-spin"></div>
+                    <span class="text-[12px] font-bold text-[#001e40] uppercase tracking-widest">Updating View...</span>
+                </div>
+            </div>
+
             <div class="p-gutter border-b border-[#c3c6d1] bg-[#f9f9fe] flex flex-wrap items-center justify-between gap-4">
                 <h3 class="font-bold text-[#001e40] text-lg">Purchase Request Tracker</h3>
                 <div class="flex items-center gap-3">
                     <div class="relative">
                         <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[#43474f] text-[18px]">search</span>
-                        <input type="text" placeholder="Search PR or supplier..." class="pl-9 pr-4 py-2.5 bg-white border border-[#c3c6d1] rounded-lg text-sm focus:ring-2 focus:ring-[#001e40] outline-none transition-all w-56 placeholder-[#43474f]/40"/>
+                        <input type="text" wire:model.live.debounce.300ms="search" placeholder="Search PR or supplier..." class="pl-9 pr-4 py-2.5 bg-white border border-[#c3c6d1] rounded-lg text-sm focus:ring-2 focus:ring-[#001e40] outline-none transition-all w-56 placeholder-[#43474f]/40"/>
                     </div>
                     <x-primary-button variant="secondary" icon="filter_list" class="!px-3" />
                     <x-primary-button variant="secondary" icon="download" class="!px-3" />
@@ -76,19 +119,34 @@
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-[#c3c6d1] text-[13px]">
-                        @forelse($prs as $pr)
+                        @forelse($folders as $folder)
                         <tr class="hover:bg-[#f4f3f8] transition-colors">
-                            <td class="p-table-cell-padding font-bold text-[#001e40]">{{ $pr['id'] }}</td>
-                            <td class="p-table-cell-padding text-[#1a1c1f]">{{ $pr['date'] }}</td>
-                            <td class="p-table-cell-padding text-[#1a1c1f]">{{ $pr['supplier'] }}</td>
+                            <td class="p-table-cell-padding font-bold text-[#001e40]">{{ $folder->tracking_number }}</td>
+                            <td class="p-table-cell-padding text-[#1a1c1f]">{{ $folder->created_at->format('M d, Y') }}</td>
+                            <td class="p-table-cell-padding text-[#1a1c1f]">{{ $folder->purchaseOrder?->supplier?->name ?? '—' }}</td>
                             <td class="p-table-cell-padding">
-                                <span class="px-3 py-1 rounded-full text-[10px] font-bold uppercase {{ $pr['status_color'] }}">{{ $pr['status'] }}</span>
+                                @php
+                                    $statusColors = [
+                                        'DRAFT' => 'bg-[#eeedf2] text-[#43474f]',
+                                        'PR_PRINTED' => 'bg-[#ffdbca] text-[#341100]',
+                                        'RFQ_SENT' => 'bg-[#d8e1ea] text-[#5b646b]',
+                                        'AWARDED' => 'bg-green-100 text-green-800',
+                                        'PO_RELEASED' => 'bg-[#d5e3ff] text-[#001b3c]',
+                                    ];
+                                    $color = $statusColors[$folder->status] ?? 'bg-gray-100 text-gray-800';
+                                @endphp
+                                <span class="px-3 py-1 rounded-full text-[10px] font-bold uppercase {{ $color }}">{{ str_replace('_', ' ', $folder->status) }}</span>
                             </td>
                             <td class="p-table-cell-padding">
-                                @php $pct = $pr['total'] > 0 ? round(($pr['delivered']/$pr['total'])*100) : 0; @endphp
+                                @php 
+                                    // Placeholder delivery logic
+                                    $totalItems = $folder->prItems->sum('total_qty');
+                                    $delivered = $folder->status === 'PO_RELEASED' ? $totalItems : 0; 
+                                    $pct = $totalItems > 0 ? round(($delivered/$totalItems)*100) : 0; 
+                                @endphp
                                 <div class="space-y-1">
                                     <div class="flex justify-between text-[10px] font-bold text-[#43474f]">
-                                        <span>{{ $pr['delivered'] }} / {{ $pr['total'] }} Units</span>
+                                        <span>{{ $delivered }} / {{ $totalItems }} Units</span>
                                         <span>{{ $pct }}%</span>
                                     </div>
                                     <div class="w-full h-2 bg-[#eeedf2] rounded-full overflow-hidden">
@@ -108,9 +166,14 @@
                             <td colspan="6" class="px-6 py-20 text-center">
                                 <div class="flex flex-col items-center gap-3 text-[#43474f]">
                                     <span class="material-symbols-outlined text-[56px] text-[#c3c6d1]">receipt_long</span>
-                                    <p class="font-bold text-[#001e40] text-lg">No Purchase Requests Found</p>
-                                    <p class="text-[13px] text-[#43474f] max-w-xs">There are no procurement requests yet. Create the first one to start tracking your purchasing pipeline.</p>
-                                    <x-primary-button icon="add" class="mt-2">Create First PR</x-primary-button>
+                                    @if($search)
+                                        <p class="font-bold text-[#001e40] text-lg">No Results Found</p>
+                                        <p class="text-[13px] text-[#43474f] max-w-xs">We couldn't find any procurement folders matching "{{ $search }}".</p>
+                                    @else
+                                        <p class="font-bold text-[#001e40] text-lg">No Purchase Requests Found</p>
+                                        <p class="text-[13px] text-[#43474f] max-w-xs">There are no procurement requests yet. Create the first one to start tracking your purchasing pipeline.</p>
+                                        <x-primary-button icon="add" class="mt-2">Create First PR</x-primary-button>
+                                    @endif
                                 </div>
                             </td>
                         </tr>
@@ -118,20 +181,20 @@
                     </tbody>
                 </table>
             </div>
-            @if($prs->count() > 0)
-            <div class="p-gutter border-t border-[#c3c6d1] flex items-center justify-between bg-[#f9f9fe]">
-                <p class="text-[12px] font-bold text-[#43474f] uppercase tracking-wider">Showing 1 to {{ $prs->count() }} of 42 PRs</p>
-                <div class="flex gap-2">
-                    <button class="w-9 h-9 flex items-center justify-center border border-[#c3c6d1] rounded-lg hover:bg-[#f4f3f8] transition-all disabled:opacity-30" disabled><span class="material-symbols-outlined text-[20px]">chevron_left</span></button>
-                    <button class="w-9 h-9 flex items-center justify-center bg-[#001e40] text-white rounded-lg font-bold text-sm shadow-sm">1</button>
-                    <button class="w-9 h-9 flex items-center justify-center border border-[#c3c6d1] rounded-lg hover:bg-[#f4f3f8] transition-all font-bold text-sm">2</button>
-                    <button class="w-9 h-9 flex items-center justify-center border border-[#c3c6d1] rounded-lg hover:bg-[#f4f3f8] transition-all"><span class="material-symbols-outlined text-[20px]">chevron_right</span></button>
+            
+            @if($folders->hasPages())
+                <div class="p-gutter border-t border-[#c3c6d1] bg-[#f9f9fe]">
+                    {{ $folders->links('vendor.livewire.tailwind') }}
                 </div>
-            </div>
+            @elseif($folders->count() > 0)
+                <div class="p-gutter border-t border-[#c3c6d1] flex items-center justify-between bg-[#f9f9fe]">
+                    <p class="text-[12px] font-bold text-[#43474f] uppercase tracking-wider">Showing 1 to {{ $folders->count() }} of {{ $folders->total() }} PRs</p>
+                </div>
             @endif
         </div>
 
-        {{-- Insight Cards --}}
+        {{-- Insight Cards (Hidden on Empty State) --}}
+        @if($totalActive > 0 || $totalPending > 0)
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-gutter">
             <div class="bg-[#d5e3ff]/30 p-8 border border-[#001e40]/10 rounded-2xl relative overflow-hidden group shadow-sm">
                 <div class="relative z-10">
@@ -157,5 +220,6 @@
                 </div>
             </div>
         </div>
+        @endif
     </div>
-</x-app-layout>
+</div>

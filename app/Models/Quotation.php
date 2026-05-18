@@ -4,18 +4,23 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
-use NumberFormatter;
 
-class PurchaseOrder extends Model
+class Quotation extends Model
 {
     use HasUuids;
 
     protected $fillable = [
         'folder_id',
-        'po_number',
         'supplier_id',
-        'total_amount',
-        'mode_of_procurement',
+        'is_winning_bid',
+        'delivery_period',
+        'warranty_terms',
+        'price_validity_to',
+    ];
+
+    protected $casts = [
+        'price_validity_to' => 'date',
+        'is_winning_bid' => 'boolean',
     ];
 
     public function folder()
@@ -28,12 +33,8 @@ class PurchaseOrder extends Model
         return $this->belongsTo(Supplier::class, 'supplier_id');
     }
 
-    /**
-     * Converts the total amount into words for strict PO compliance.
-     */
-    public function getTotalInWordsAttribute()
+    public function items()
     {
-        $formatter = new NumberFormatter("en", NumberFormatter::SPELLOUT);
-        return ucwords($formatter->format($this->total_amount)) . " Pesos Only";
+        return $this->hasMany(QuotationItem::class, 'quotation_id');
     }
 }

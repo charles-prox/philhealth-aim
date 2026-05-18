@@ -67,16 +67,29 @@ new class extends Component
         </x-sidebar-link>
 
         @role('Admin')
-            {{-- COB Management Section --}}
+            {{-- Budget Management Section --}}
             <div class="pt-4 pb-1 px-4" x-show="!sidebarCollapsed">
-                <p class="text-[10px] uppercase tracking-widest text-[#43474f] font-bold">COB Management</p>
+                <p class="text-[10px] uppercase tracking-widest text-[#43474f] font-bold">Budget Management</p>
             </div>
             <div class="pt-4 pb-1 flex justify-center" x-show="sidebarCollapsed">
                 <div class="w-8 h-[1px] bg-[#c3c6d1]"></div>
             </div>
 
-            <x-sidebar-link :href="route('cob.kickoff')" :active="request()->routeIs('cob.*')" icon="account_balance">
-                Annual Kick-off
+            @php
+                $viewingVersion = request()->route('version');
+                $isViewingRealignment = $viewingVersion && str_contains($viewingVersion->version_name ?? '', 'Realignment');
+            @endphp
+
+            <x-sidebar-link :href="route('cob.registry')"
+                :active="request()->routeIs('cob.registry') || (request()->routeIs('cob.items') && !$isViewingRealignment)"
+                icon="account_balance">
+                COB Registry
+            </x-sidebar-link>
+
+            <x-sidebar-link :href="route('cob.realignment')"
+                :active="request()->routeIs('cob.realignment') || (request()->routeIs('cob.items') && $isViewingRealignment)"
+                icon="swap_horiz">
+                Realignment
             </x-sidebar-link>
 
             {{-- Administration Section --}}

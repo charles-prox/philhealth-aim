@@ -25,7 +25,7 @@ Route::view('profile', 'profile')
     ->middleware(['auth'])
     ->name('profile');
 
-Route::view('procurement', 'procurement')
+Volt::route('procurement', 'procurement')
     ->middleware(['auth'])
     ->name('procurement');
 
@@ -50,12 +50,16 @@ Volt::route('admin/users', 'admin.user-management')
     ->name('admin.users');
 
 // COB Management Module
-Volt::route('cob/kickoff', 'cob.annual-kickoff')
+Volt::route('cob/registry', 'cob.cob-registry')
     ->middleware(['auth'])
-    ->name('cob.kickoff');
+    ->name('cob.registry');
 
 Volt::route('cob/version/{version}/items', 'cob.version-items')
     ->middleware(['auth'])
     ->name('cob.items');
+
+Volt::route('cob/realignment', 'cob.realignment-wizard')
+    ->middleware(['auth'])
+    ->name('cob.realignment');
 
 require __DIR__.'/auth.php';

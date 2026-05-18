@@ -216,7 +216,7 @@ new #[Layout('layouts.app')] class extends Component
 
     {{-- Back + Header --}}
     <div class="flex items-center gap-4">
-        <a href="{{ route('cob.kickoff') }}" wire:navigate
+        <a href="{{ route('cob.registry') }}" wire:navigate
            class="p-2 border border-[#c3c6d1] rounded-lg hover:bg-white hover:border-[#001e40] text-[#43474f] hover:text-[#001e40] transition-all">
             <span class="material-symbols-outlined text-[22px]">arrow_back</span>
         </a>
@@ -349,8 +349,18 @@ new #[Layout('layouts.app')] class extends Component
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-[#c3c6d1] text-[13px]">
+                    @php
+                        use App\Models\BudgetTransaction;
+                        $txns = BudgetTransaction::where('version_id', $version->id)->get();
+                        $sourceIds = $txns->pluck('source_item_id')->filter()->unique()->flip()->toArray();
+                        $targetIds = $txns->pluck('target_item_id')->filter()->unique()->flip()->toArray();
+                    @endphp
                     @forelse($items as $item)
-                    <tr class="hover:bg-[#f4f3f8] transition-colors">
+                    @php
+                        $isSource = isset($sourceIds[$item->id]);
+                        $isTarget = isset($targetIds[$item->id]);
+                    @endphp
+                    <tr class="transition-colors {{ $isTarget ? 'bg-blue-50 hover:bg-blue-100/60' : ($isSource ? 'bg-orange-50 hover:bg-orange-100/60' : 'hover:bg-[#f4f3f8]') }}">
                         <td class="p-table-cell-padding">
                             <span class="font-bold text-[#001e40] uppercase">{{ $item->exp_desc ?: 'N/A' }}</span>
                         </td>
@@ -367,6 +377,11 @@ new #[Layout('layouts.app')] class extends Component
                                 <span class="font-medium text-[#1a1c1f] leading-tight">{{ $item->full_particulars ?: '—' }}</span>
                                 @if($item->version_number > 1)
                                     <span class="px-1.5 py-0.5 bg-[#e3e2e6] text-[#43474f] text-[9px] font-bold rounded shadow-sm">v{{ $item->version_number }}</span>
+                                @endif
+                                @if($isTarget)
+                                    <span class="px-1.5 py-0.5 bg-blue-100 text-blue-800 text-[9px] font-bold rounded uppercase tracking-wide">▲ Target</span>
+                                @elseif($isSource)
+                                    <span class="px-1.5 py-0.5 bg-orange-100 text-orange-800 text-[9px] font-bold rounded uppercase tracking-wide">▼ Source</span>
                                 @endif
                             </div>
                         </td>
