@@ -50,6 +50,7 @@ new class extends Component
             Procurement
         </x-sidebar-link>
 
+
         <x-sidebar-link :href="route('inventory')" :active="request()->routeIs('inventory')" icon="inventory_2">
             Inventory
         </x-sidebar-link>
@@ -84,6 +85,12 @@ new class extends Component
                 :active="request()->routeIs('cob.registry') || (request()->routeIs('cob.items') && !$isViewingRealignment)"
                 icon="account_balance">
                 COB Registry
+            </x-sidebar-link>
+
+            <x-sidebar-link :href="route('cob.distribution')"
+                :active="request()->routeIs('cob.distribution')"
+                icon="grid_on">
+                Distribution Matrix
             </x-sidebar-link>
 
             <x-sidebar-link :href="route('cob.realignment')"

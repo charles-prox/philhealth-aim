@@ -89,7 +89,15 @@ new #[Layout('layouts.app')] class extends Component
     </div>
 
     {{-- Users Table Card --}}
-    <div class="bg-white border border-[#c3c6d1] rounded-xl shadow-sm overflow-hidden flex flex-col">
+    <div class="bg-white border border-[#c3c6d1] rounded-xl shadow-sm overflow-hidden flex flex-col relative">
+
+        {{-- Unified Loading Overlay --}}
+        <div wire:loading class="absolute inset-x-0 bottom-0 top-[57px] bg-white/60 backdrop-blur-[2px] z-50 flex items-center justify-center transition-all">
+            <div class="flex flex-col items-center gap-2">
+                <div class="w-10 h-10 border-4 border-[#eeedf2] border-t-[#001e40] rounded-full animate-spin"></div>
+                <span class="text-[12px] font-bold text-[#001e40] uppercase tracking-widest">Updating View...</span>
+            </div>
+        </div>
 
         {{-- Table Header --}}
         <div class="p-gutter border-b border-[#c3c6d1] bg-[#f9f9fe] flex flex-wrap justify-between items-center gap-4">

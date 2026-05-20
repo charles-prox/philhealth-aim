@@ -1,12 +1,24 @@
-@props(['label', 'icon' => null, 'placeholder' => 'Select an option', 'options' => [], 'error' => null, 'multiple' => false, 'searchable' => false])
+@props(['label', 'icon' => null, 'placeholder' => 'Select an option', 'options' => [], 'error' => null, 'multiple' => false, 'searchable' => false, 'placement' => 'bottom'])
 
 <div class="flex flex-col gap-2" 
+     data-options="{{ json_encode($options) }}"
      x-data="{ 
         open: false, 
         multiple: {{ $multiple ? 'true' : 'false' }},
         selected: @entangle($attributes->wire('model')),
         searchTerm: '',
         options: {{ json_encode($options) }},
+        
+        init() {
+            const observer = new MutationObserver((mutations) => {
+                mutations.forEach((mutation) => {
+                    if (mutation.type === 'attributes' && mutation.attributeName === 'data-options') {
+                        this.options = JSON.parse(this.$el.getAttribute('data-options') || '{}');
+                    }
+                });
+            });
+            observer.observe(this.$el, { attributes: true });
+        },
         
         get filteredOptions() {
             if (!this.searchTerm) return Object.entries(this.options);
@@ -79,7 +91,7 @@
                         {{ $icon }}
                     </span>
                 @endif
-                <span class="text-[#1a1c1f] truncate pr-2" x-text="displayLabel"></span>
+                <span class="text-[#1a1c1f] whitespace-nowrap truncate pr-2" x-text="displayLabel"></span>
             </div>
             <span class="material-symbols-outlined inline-block text-[#43474f] text-[20px] transition-transform duration-200 flex-shrink-0" :class="open ? 'rotate-180' : 'rotate-0'">
                 expand_more
@@ -91,7 +103,7 @@
              x-transition:enter="transition ease-out duration-100"
              x-transition:enter-start="transform opacity-0 scale-95"
              x-transition:enter-end="transform opacity-100 scale-100"
-             class="absolute z-[60] w-full mt-2 bg-white border border-[#c3c6d1] rounded-xl shadow-xl overflow-hidden flex flex-col"
+             class="absolute z-[60] w-full bg-white border border-[#c3c6d1] rounded-xl shadow-xl overflow-hidden flex flex-col {{ $placement === 'top' ? 'bottom-full mb-2' : 'mt-2' }}"
              style="display: none;">
             
             @if($searchable)
@@ -109,8 +121,18 @@
                     <button type="button" 
                             @click="select(val)"
                             class="w-full text-left px-3 py-2 text-sm text-[#43474f] hover:bg-[#f4f3f8] hover:text-[#001e40] transition-colors flex items-center justify-between rounded-lg group">
-                        <span class="truncate pr-2" :class="isSelected(val) ? 'font-bold text-[#001e40]' : ''" x-text="lab"></span>
-                        <span x-show="isSelected(val)" class="material-symbols-outlined text-[18px] text-[#001e40]">check</span>
+                        <div class="flex-1 min-w-0 pr-2">
+                            <template x-if="lab.includes(' — ')">
+                                <div class="flex flex-col py-0.5">
+                                    <span class="font-bold text-sm" :class="isSelected(val) ? 'text-[#001e40]' : 'text-[#1a1c1f]'" x-text="lab.split(' — ')[0]"></span>
+                                    <span class="text-xs text-[#43474f]/70 group-hover:text-[#001e40]/70" x-text="lab.split(' — ')[1]"></span>
+                                </div>
+                            </template>
+                            <template x-if="!lab.includes(' — ')">
+                                <span class="whitespace-nowrap truncate block" :class="isSelected(val) ? 'font-bold text-[#001e40]' : ''" x-text="lab"></span>
+                            </template>
+                        </div>
+                        <span x-show="isSelected(val)" class="material-symbols-outlined text-[18px] text-[#001e40] flex-shrink-0">check</span>
                     </button>
                 </template>
                 <div x-show="filteredOptions.length === 0" class="p-4 text-center text-xs text-[#43474f] italic">

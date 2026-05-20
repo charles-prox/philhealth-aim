@@ -10,6 +10,7 @@ class ProcurementFolder extends Model
     use HasUuids;
 
     protected $fillable = [
+        // Legacy columns (retained for backward compat)
         'tracking_number',
         'rfq_control_no',
         'status',
@@ -24,6 +25,12 @@ class ProcurementFolder extends Model
         'requested_by_designation',
         'approved_by_id',
         'approved_by_designation',
+        'recommended_by_id',
+        'recommended_by_designation',
+        // Distribution-First fields
+        'pr_number',
+        'project_title',
+        'procurement_method',
     ];
 
     protected $casts = [
@@ -60,5 +67,10 @@ class ProcurementFolder extends Model
     public function approvedBy()
     {
         return $this->belongsTo(Employee::class, 'approved_by_id');
+    }
+
+    public function recommendedBy()
+    {
+        return $this->belongsTo(Employee::class, 'recommended_by_id');
     }
 }

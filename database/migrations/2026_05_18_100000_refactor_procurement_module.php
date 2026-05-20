@@ -7,13 +7,23 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration {
     public function up(): void {
         // Drop existing to ensure a clean slate, using CASCADE for Postgres FKs
-        \Illuminate\Support\Facades\DB::statement('DROP TABLE IF EXISTS purchase_orders CASCADE');
-        \Illuminate\Support\Facades\DB::statement('DROP TABLE IF EXISTS distribution_plans CASCADE');
-        \Illuminate\Support\Facades\DB::statement('DROP TABLE IF EXISTS quotation_items CASCADE');
-        \Illuminate\Support\Facades\DB::statement('DROP TABLE IF EXISTS quotations CASCADE');
-        \Illuminate\Support\Facades\DB::statement('DROP TABLE IF EXISTS pr_items CASCADE');
-        \Illuminate\Support\Facades\DB::statement('DROP TABLE IF EXISTS procurement_folders CASCADE');
-        \Illuminate\Support\Facades\DB::statement('DROP TABLE IF EXISTS suppliers CASCADE');
+        if (\Illuminate\Support\Facades\DB::getDriverName() === 'pgsql') {
+            \Illuminate\Support\Facades\DB::statement('DROP TABLE IF EXISTS purchase_orders CASCADE');
+            \Illuminate\Support\Facades\DB::statement('DROP TABLE IF EXISTS distribution_plans CASCADE');
+            \Illuminate\Support\Facades\DB::statement('DROP TABLE IF EXISTS quotation_items CASCADE');
+            \Illuminate\Support\Facades\DB::statement('DROP TABLE IF EXISTS quotations CASCADE');
+            \Illuminate\Support\Facades\DB::statement('DROP TABLE IF EXISTS pr_items CASCADE');
+            \Illuminate\Support\Facades\DB::statement('DROP TABLE IF EXISTS procurement_folders CASCADE');
+            \Illuminate\Support\Facades\DB::statement('DROP TABLE IF EXISTS suppliers CASCADE');
+        } else {
+            Schema::dropIfExists('purchase_orders');
+            Schema::dropIfExists('distribution_plans');
+            Schema::dropIfExists('quotation_items');
+            Schema::dropIfExists('quotations');
+            Schema::dropIfExists('pr_items');
+            Schema::dropIfExists('procurement_folders');
+            Schema::dropIfExists('suppliers');
+        }
 
         // 0. SUPPLIERS
         Schema::create('suppliers', function (Blueprint $table) {

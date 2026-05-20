@@ -31,4 +31,28 @@ class ProcurementController extends Controller
         
         return view('procurement.bids', compact('folder', 'bids'));
     }
+
+    public function viewPrPdf(ProcurementFolder $folder)
+    {
+        $storagePath = "pr/{$folder->pr_number}.pdf";
+        $disk = \Illuminate\Support\Facades\Storage::disk('public');
+
+        // Check if PDF exists in storage, if not generate it on-the-fly
+        if (!$disk->exists($storagePath)) {
+            try {
+                $this->googleService->generatePrPdf($folder);
+            } catch (\Exception $e) {
+                return back()->with('error', 'Failed to generate PR PDF: ' . $e->getMessage());
+            }
+        }
+
+        if (!$disk->exists($storagePath)) {
+            abort(404, 'PDF file could not be generated.');
+        }
+
+        return response()->file($disk->path($storagePath), [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'inline; filename="' . $folder->pr_number . '.pdf"'
+        ]);
+    }
 }

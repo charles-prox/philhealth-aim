@@ -3,6 +3,7 @@
 use App\Models\ProcurementFolder;
 use Livewire\Volt\Component;
 use Livewire\Attributes\Layout;
+use Livewire\Attributes\On;
 use Livewire\WithPagination;
 
 new #[Layout('layouts.app')] class extends Component
@@ -10,6 +11,23 @@ new #[Layout('layouts.app')] class extends Component
     use WithPagination;
 
     public $search = '';
+    public bool $isCreatingPr = false;
+    public ?string $successMessage = null;
+
+    #[On('pr-created')]
+    public function onPrCreated()
+    {
+        $this->isCreatingPr = false;
+        $this->successMessage = "PR compiled successfully! Folder has been created in the Procurement Tracker.";
+        $this->resetPage();
+    }
+
+    #[On('pr-cancelled')]
+    public function onPrCancelled()
+    {
+        $this->isCreatingPr = false;
+        $this->successMessage = null;
+    }
 
     public function updatingSearch()
     {
@@ -44,13 +62,41 @@ new #[Layout('layouts.app')] class extends Component
 }; ?>
 
 <div>
-    @section('header_title', 'Procurement')
+    @section('header_title', $isCreatingPr ? 'Compile Purchase Request' : 'Procurement')
 
     @push('header_actions')
-        <x-primary-button icon="add">New PR</x-primary-button>
+        @if($isCreatingPr)
+            <x-primary-button variant="secondary" icon="arrow_back" x-on:click="$dispatch('close-pr-creation')">Back to Registry</x-primary-button>
+        @else
+            <x-primary-button icon="add" x-on:click="$dispatch('open-pr-creation')">New PR</x-primary-button>
+        @endif
     @endpush
 
-    <div class="p-container-padding bg-background space-y-6">
+    <div class="p-container-padding bg-background space-y-6" 
+         x-data="{ isCreatingPr: $wire.entangle('isCreatingPr') }"
+         x-on:open-pr-creation.window="isCreatingPr = true"
+         x-on:close-pr-creation.window="isCreatingPr = false">
+
+        {{-- PR Registry Workspace --}}
+        <div x-show="!isCreatingPr"
+             x-transition:enter="transition ease-out duration-300"
+             x-transition:enter-start="opacity-0 translate-y-4"
+             x-transition:enter-end="opacity-100 translate-y-0"
+             x-transition:leave="transition ease-in duration-200"
+             x-transition:leave-start="opacity-100 translate-y-0"
+             x-transition:leave-end="opacity-0 -translate-y-4"
+             class="space-y-6">
+
+        {{-- Success Banner --}}
+        @if($successMessage)
+            <div class="flex items-center gap-3 bg-green-50 border border-green-200 text-green-800 px-5 py-3 rounded-xl shadow-sm" x-data="{ show: true }" x-show="show">
+                <span class="material-symbols-outlined text-green-600">check_circle</span>
+                <p class="text-sm font-bold flex-1">{{ $successMessage }}</p>
+                <button @click="show = false" wire:click="$set('successMessage', null)" class="p-1 hover:bg-green-100 rounded-lg">
+                    <span class="material-symbols-outlined text-[18px]">close</span>
+                </button>
+            </div>
+        @endif
 
         {{-- KPI Bento Grid --}}
         <div class="grid grid-cols-2 md:grid-cols-4 gap-gutter">
@@ -156,8 +202,10 @@ new #[Layout('layouts.app')] class extends Component
                             </td>
                             <td class="p-table-cell-padding text-right">
                                 <div class="flex justify-end gap-1">
-                                    <button class="p-1.5 hover:bg-[#eeedf2] rounded-lg text-[#43474f] hover:text-[#001e40] transition-all"><span class="material-symbols-outlined text-[20px]">visibility</span></button>
-                                    <button class="p-1.5 hover:bg-[#eeedf2] rounded-lg text-[#43474f] hover:text-[#001e40] transition-all"><span class="material-symbols-outlined text-[20px]">more_vert</span></button>
+                                    <a href="{{ route('procurement.pr.pdf', $folder->pr_number) }}" target="_blank" title="View PDF Form" class="p-1.5 hover:bg-[#eeedf2] rounded-lg text-[#43474f] hover:text-[#001e40] transition-all flex items-center justify-center">
+                                        <span class="material-symbols-outlined text-[20px]">visibility</span>
+                                    </a>
+                                    <button class="p-1.5 hover:bg-[#eeedf2] rounded-lg text-[#43474f] hover:text-[#001e40] transition-all flex items-center justify-center"><span class="material-symbols-outlined text-[20px]">more_vert</span></button>
                                 </div>
                             </td>
                         </tr>
@@ -172,7 +220,7 @@ new #[Layout('layouts.app')] class extends Component
                                     @else
                                         <p class="font-bold text-[#001e40] text-lg">No Purchase Requests Found</p>
                                         <p class="text-[13px] text-[#43474f] max-w-xs">There are no procurement requests yet. Create the first one to start tracking your purchasing pipeline.</p>
-                                        <x-primary-button icon="add" class="mt-2">Create First PR</x-primary-button>
+                                        <x-primary-button icon="add" class="mt-2" x-on:click="isCreatingPr = true">Create First PR</x-primary-button>
                                     @endif
                                 </div>
                             </td>
@@ -181,10 +229,10 @@ new #[Layout('layouts.app')] class extends Component
                     </tbody>
                 </table>
             </div>
-            
+
             @if($folders->hasPages())
                 <div class="p-gutter border-t border-[#c3c6d1] bg-[#f9f9fe]">
-                    {{ $folders->links('vendor.livewire.tailwind') }}
+                    {{ $folders->links() }}
                 </div>
             @elseif($folders->count() > 0)
                 <div class="p-gutter border-t border-[#c3c6d1] flex items-center justify-between bg-[#f9f9fe]">
@@ -221,5 +269,20 @@ new #[Layout('layouts.app')] class extends Component
             </div>
         </div>
         @endif
+        </div>
+
+        {{-- PR Compiler Workspace --}}
+        <div x-show="isCreatingPr"
+             x-cloak
+             x-transition:enter="transition ease-out duration-300"
+             x-transition:enter-start="opacity-0 translate-y-4"
+             x-transition:enter-end="opacity-100 translate-y-0"
+             x-transition:leave="transition ease-in duration-200"
+             x-transition:leave-start="opacity-100 translate-y-0"
+             x-transition:leave-end="opacity-0 -translate-y-4"
+             class="space-y-5">
+             <livewire:procurement.pr-compiler />
+        </div>
+
     </div>
 </div>

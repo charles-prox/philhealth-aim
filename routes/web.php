@@ -29,6 +29,10 @@ Volt::route('procurement', 'procurement')
     ->middleware(['auth'])
     ->name('procurement');
 
+Route::get('procurement/pr/{folder:pr_number}/pdf', [\App\Http\Controllers\ProcurementController::class, 'viewPrPdf'])
+    ->middleware(['auth'])
+    ->name('procurement.pr.pdf');
+
 Route::view('inventory', 'inventory')
     ->middleware(['auth'])
     ->name('inventory');
@@ -61,5 +65,11 @@ Volt::route('cob/version/{version}/items', 'cob.version-items')
 Volt::route('cob/realignment', 'cob.realignment-wizard')
     ->middleware(['auth'])
     ->name('cob.realignment');
+
+Volt::route('cob/distribution', 'cob.distribution-matrix')
+    ->middleware(['auth'])
+    ->name('cob.distribution');
+
+
 
 require __DIR__.'/auth.php';
