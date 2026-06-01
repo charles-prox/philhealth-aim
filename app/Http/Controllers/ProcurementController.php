@@ -3,16 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Models\ProcurementFolder;
-use App\Services\GoogleIntegrationService;
 use Illuminate\Http\Request;
+use Spatie\LaravelPdf\Facades\Pdf;
 
 class ProcurementController extends Controller
 {
-    protected $googleService;
-
-    public function __construct(GoogleIntegrationService $googleService)
+    public function __construct()
     {
-        $this->googleService = $googleService;
     }
 
     public function initiateRfq(Request $request, ProcurementFolder $folder)
@@ -20,14 +17,16 @@ class ProcurementController extends Controller
         // Example suppliers array
         $suppliers = $request->input('suppliers', []);
         
-        $this->googleService->initiateRfq($folder, $suppliers);
+        $folder->update([
+            'status' => 'RFQ',
+        ]);
 
         return redirect()->back()->with('success', 'RFQ Form Generated and Emails Sent.');
     }
 
     public function syncBids(ProcurementFolder $folder)
     {
-        $bids = $this->googleService->syncBidsFromSheet($folder);
+        $bids = [];
         
         return view('procurement.bids', compact('folder', 'bids'));
     }
@@ -40,9 +39,17 @@ class ProcurementController extends Controller
         // Check if PDF exists in storage, if not generate it on-the-fly
         if (!$disk->exists($storagePath)) {
             try {
-                $this->googleService->generatePrPdf($folder);
+                if (!$disk->exists('pr')) {
+                    $disk->makeDirectory('pr');
+                }
+                Pdf::view('pdf.pr-form', ['folder' => $folder])
+                    ->save($disk->path($storagePath));
             } catch (\Exception $e) {
-                return back()->with('error', 'Failed to generate PR PDF: ' . $e->getMessage());
+                $errorMessage = $e->getMessage();
+                
+                \Illuminate\Support\Facades\Log::error("Failed to generate PR PDF: " . $errorMessage, ['exception' => $e]);
+                
+                return back()->with('error', 'Failed to generate PR PDF: ' . $errorMessage);
             }
         }
 

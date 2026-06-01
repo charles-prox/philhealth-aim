@@ -21,6 +21,30 @@
 
         <!-- Scripts -->
         @vite(['resources/css/app.css', 'resources/js/app.js'])
+
+        <script>
+            (function () {
+                const collapsed = localStorage.getItem('sidebar_collapsed') === 'true';
+                if (collapsed) {
+                    document.documentElement.classList.add('sidebar-collapsed');
+                }
+            })();
+        </script>
+
+        <style>
+            /* Prevent Cumulative Layout Shift (CLS) before Alpine.js boots */
+            .sidebar-collapsed aside {
+                width: 5rem !important; /* w-20 */
+            }
+            @media (min-width: 768px) {
+                .main-workspace {
+                    margin-left: 16rem; /* md:ml-64 */
+                }
+                .sidebar-collapsed .main-workspace {
+                    margin-left: 5rem !important; /* md:ml-20 */
+                }
+            }
+        </style>
     </head>
     <body class="font-sans antialiased text-[#1a1c1f] bg-[#f9f9fe]" 
           x-data="{ 
@@ -29,6 +53,7 @@
             toggleSidebar() {
                 this.sidebarCollapsed = !this.sidebarCollapsed;
                 localStorage.setItem('sidebar_collapsed', this.sidebarCollapsed);
+                document.documentElement.classList.toggle('sidebar-collapsed', this.sidebarCollapsed);
             }
           }"
           @keydown.window.prevent.ctrl.k="searchOpen = true" 
@@ -38,7 +63,7 @@
             <livewire:layout.navigation />
 
             <!-- Main Workspace -->
-            <div class="flex-1 flex flex-col min-w-0 overflow-hidden transition-all duration-300" 
+            <div class="main-workspace flex-1 flex flex-col min-w-0 overflow-hidden transition-all duration-300 md:ml-64" 
                  :class="sidebarCollapsed ? 'md:ml-20' : 'md:ml-64'">
                 <!-- Top App Bar -->
                 <header class="flex justify-between items-center px-6 h-14 w-full sticky top-0 z-40 bg-white border-b border-[#c3c6d1]">

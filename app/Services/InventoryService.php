@@ -13,12 +13,10 @@ use Exception;
 class InventoryService
 {
     protected $repository;
-    protected $googleService;
 
-    public function __construct(InventoryRepository $repository, GoogleIntegrationService $googleService)
+    public function __construct(InventoryRepository $repository)
     {
         $this->repository = $repository;
-        $this->googleService = $googleService;
     }
 
     /**
@@ -36,9 +34,6 @@ class InventoryService
                 'reference_no' => $referenceNo,
                 'transaction_date' => $transactionDate,
             ]);
-
-            // Auto-generate IAR Google Doc Placeholder
-            // $docLink = $this->googleService->generateAccountabilityDocument('IAR_TEMPLATE_ID', ['reference_no' => $referenceNo]);
 
             DB::commit();
             return $ledger;

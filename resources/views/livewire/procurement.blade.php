@@ -13,12 +13,14 @@ new #[Layout('layouts.app')] class extends Component
     public $search = '';
     public bool $isCreatingPr = false;
     public ?string $successMessage = null;
+    public ?string $errorMessage = null;
 
     #[On('pr-created')]
     public function onPrCreated()
     {
         $this->isCreatingPr = false;
         $this->successMessage = "PR compiled successfully! Folder has been created in the Procurement Tracker.";
+        $this->errorMessage = null;
         $this->resetPage();
     }
 
@@ -27,11 +29,37 @@ new #[Layout('layouts.app')] class extends Component
     {
         $this->isCreatingPr = false;
         $this->successMessage = null;
+        $this->errorMessage = null;
     }
 
     public function updatingSearch()
     {
         $this->resetPage();
+    }
+
+    public function generateAndViewPdf($prNumber)
+    {
+        $this->errorMessage = null;
+        $folder = ProcurementFolder::where('pr_number', $prNumber)->firstOrFail();
+        
+        $storagePath = "pr/{$folder->pr_number}.pdf";
+        $disk = \Illuminate\Support\Facades\Storage::disk('public');
+
+        if (!$disk->exists($storagePath)) {
+            try {
+                if (!$disk->exists('pr')) {
+                    $disk->makeDirectory('pr');
+                }
+                \Spatie\LaravelPdf\Facades\Pdf::view('pdf.pr-form', ['folder' => $folder])
+                    ->save($disk->path($storagePath));
+            } catch (\Exception $e) {
+                $this->errorMessage = 'Failed to generate PR PDF: ' . $e->getMessage();
+                return;
+            }
+        }
+        
+        // Dispatch browser event to open new tab
+        $this->dispatch('open-pdf', url: route('procurement.pr.pdf', $folder->pr_number));
     }
 
     public function with(): array
@@ -72,31 +100,43 @@ new #[Layout('layouts.app')] class extends Component
         @endif
     @endpush
 
-    <div class="p-container-padding bg-background space-y-6" 
-         x-data="{ isCreatingPr: $wire.entangle('isCreatingPr') }"
-         x-on:open-pr-creation.window="isCreatingPr = true"
-         x-on:close-pr-creation.window="isCreatingPr = false">
+        <div class="p-container-padding bg-background space-y-6" 
+             x-data="{ isCreatingPr: $wire.entangle('isCreatingPr') }"
+             x-on:open-pr-creation.window="isCreatingPr = true"
+             x-on:close-pr-creation.window="isCreatingPr = false"
+             x-on:open-pdf.window="window.open($event.detail.url, '_blank')">
 
-        {{-- PR Registry Workspace --}}
-        <div x-show="!isCreatingPr"
-             x-transition:enter="transition ease-out duration-300"
-             x-transition:enter-start="opacity-0 translate-y-4"
-             x-transition:enter-end="opacity-100 translate-y-0"
-             x-transition:leave="transition ease-in duration-200"
-             x-transition:leave-start="opacity-100 translate-y-0"
-             x-transition:leave-end="opacity-0 -translate-y-4"
-             class="space-y-6">
+            {{-- PR Registry Workspace --}}
+            <div x-show="!isCreatingPr"
+                 x-transition:enter="transition ease-out duration-300"
+                 x-transition:enter-start="opacity-0 translate-y-4"
+                 x-transition:enter-end="opacity-100 translate-y-0"
+                 x-transition:leave="transition ease-in duration-200"
+                 x-transition:leave-start="opacity-100 translate-y-0"
+                 x-transition:leave-end="opacity-0 -translate-y-4"
+                 class="space-y-6">
 
-        {{-- Success Banner --}}
-        @if($successMessage)
-            <div class="flex items-center gap-3 bg-green-50 border border-green-200 text-green-800 px-5 py-3 rounded-xl shadow-sm" x-data="{ show: true }" x-show="show">
-                <span class="material-symbols-outlined text-green-600">check_circle</span>
-                <p class="text-sm font-bold flex-1">{{ $successMessage }}</p>
-                <button @click="show = false" wire:click="$set('successMessage', null)" class="p-1 hover:bg-green-100 rounded-lg">
-                    <span class="material-symbols-outlined text-[18px]">close</span>
-                </button>
-            </div>
-        @endif
+            {{-- Success Banner --}}
+            @if($successMessage)
+                <div class="flex items-center gap-3 bg-green-50 border border-green-200 text-green-800 px-5 py-3 rounded-xl shadow-sm" x-data="{ show: true }" x-show="show">
+                    <span class="material-symbols-outlined text-green-600">check_circle</span>
+                    <p class="text-sm font-bold flex-1">{{ $successMessage }}</p>
+                    <button @click="show = false" wire:click="$set('successMessage', null)" class="p-1 hover:bg-green-100 rounded-lg">
+                        <span class="material-symbols-outlined text-[18px]">close</span>
+                    </button>
+                </div>
+            @endif
+
+            {{-- Error Banner --}}
+            @if(session('error') || $errorMessage)
+                <div class="flex items-center gap-3 bg-red-50 border border-red-200 text-red-800 px-5 py-3 rounded-xl shadow-sm mb-4" x-data="{ show: true }" x-show="show">
+                    <span class="material-symbols-outlined text-red-600">error</span>
+                    <p class="text-sm font-bold flex-1">{{ session('error') ?? $errorMessage }}</p>
+                    <button @click="show = false" @if($errorMessage) wire:click="$set('errorMessage', null)" @endif class="p-1 hover:bg-red-100 rounded-lg">
+                        <span class="material-symbols-outlined text-[18px]">close</span>
+                    </button>
+                </div>
+            @endif
 
         {{-- KPI Bento Grid --}}
         <div class="grid grid-cols-2 md:grid-cols-4 gap-gutter">
@@ -202,9 +242,12 @@ new #[Layout('layouts.app')] class extends Component
                             </td>
                             <td class="p-table-cell-padding text-right">
                                 <div class="flex justify-end gap-1">
-                                    <a href="{{ route('procurement.pr.pdf', $folder->pr_number) }}" target="_blank" title="View PDF Form" class="p-1.5 hover:bg-[#eeedf2] rounded-lg text-[#43474f] hover:text-[#001e40] transition-all flex items-center justify-center">
-                                        <span class="material-symbols-outlined text-[20px]">visibility</span>
-                                    </a>
+                                    <button wire:click="generateAndViewPdf('{{ $folder->pr_number }}')" wire:loading.attr="disabled" title="View PDF Form" class="p-1.5 hover:bg-[#eeedf2] rounded-lg text-[#43474f] hover:text-[#001e40] transition-all flex items-center justify-center relative">
+                                        <span class="material-symbols-outlined text-[20px]" wire:loading.class="opacity-0" wire:target="generateAndViewPdf('{{ $folder->pr_number }}')">visibility</span>
+                                        <div wire:loading wire:target="generateAndViewPdf('{{ $folder->pr_number }}')" class="absolute inset-0 flex items-center justify-center">
+                                            <div class="w-4 h-4 border-2 border-[#001e40] border-t-transparent rounded-full animate-spin"></div>
+                                        </div>
+                                    </button>
                                     <button class="p-1.5 hover:bg-[#eeedf2] rounded-lg text-[#43474f] hover:text-[#001e40] transition-all flex items-center justify-center"><span class="material-symbols-outlined text-[20px]">more_vert</span></button>
                                 </div>
                             </td>

@@ -10,12 +10,12 @@
     "license": "MIT",
     "require": {
         "php": "^8.2",
-        "google/apiclient": "*",
         "laravel/framework": "^12.0",
         "laravel/tinker": "^2.10.1",
         "livewire/livewire": "^3.6.4",
         "livewire/volt": "^1.7.0",
         "rap2hpoutre/fast-excel": "^5.5",
+        "spatie/laravel-pdf": "^1.5",
         "spatie/laravel-permission": "^7.4"
     },
     "require-dev": {
@@ -80,12 +80,7 @@
     "extra": {
         "laravel": {
             "dont-discover": []
-        },
-        "google/apiclient-services": [
-            "Drive",
-            "Docs",
-            "Sheets"
-        ]
+        }
     },
     "config": {
         "optimize-autoloader": true,
