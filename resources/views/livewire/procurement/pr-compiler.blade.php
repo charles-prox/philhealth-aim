@@ -18,10 +18,11 @@ new class extends Component
     use WithPagination;
 
     public int $currentStep = 1;
+    public ?string $folderId = null;
 
-    public function mount(): void
+    public function mount(?string $folderId = null): void
     {
-        $this->resetState();
+        $this->resetState($folderId);
     }
 
     public function generateNextPrNumber(): string
@@ -31,7 +32,7 @@ new class extends Component
     }
 
     #[On('open-pr-creation')]
-    public function resetState(): void
+    public function resetState(?string $folderId = null): void
     {
         $this->selectedIds = [];
         $this->filterOfficeId = '';
@@ -39,13 +40,28 @@ new class extends Component
         $this->filterCategory = '';
         $this->search = '';
         $this->showCompileModal = false;
-        $this->compilePrNumber = $this->generateNextPrNumber();
+        $this->folderId = $folderId;
+        $this->compileTrackingNumber = $this->generateNextPrNumber();
+        $this->compilePrNumber = $this->compileTrackingNumber;
         $this->compilePurpose = '';
         $this->requestedById    = null;
         $this->approvedById     = null;
         $this->recommendedById  = null;
         $this->successMessage = null;
         $this->currentStep = 1;
+
+        if ($this->folderId) {
+            $folder = \App\Models\ProcurementFolder::findOrFail($this->folderId);
+            $this->compileTrackingNumber = $folder->tracking_number;
+            $this->compilePrNumber = $folder->pr_number;
+            $this->compilePurpose = $folder->overall_purpose;
+            $this->recommendedById = $folder->recommended_by_id;
+            $this->approvedById = $folder->approved_by_id;
+
+            $this->selectedIds = \App\Models\CobItemDistribution::whereHas('prItem', function($q) {
+                $q->where('folder_id', $this->folderId);
+            })->pluck('id')->toArray();
+        }
     }
 
     public function nextStep(): void
@@ -58,10 +74,11 @@ new class extends Component
             $this->currentStep = 2;
         } elseif ($this->currentStep === 2) {
             $this->validate([
-                'compilePrNumber'  => 'required|string|max:50|unique:procurement_folders,pr_number',
-                'compilePurpose'   => 'required|string|max:1000',
-                'recommendedById'  => 'required|integer|exists:employees,id',
-                'approvedById'     => 'required|integer|exists:employees,id',
+                'compileTrackingNumber' => 'required|string|max:50|unique:procurement_folders,tracking_number,' . ($this->folderId ?? 'NULL') . ',id',
+                'compilePrNumber'       => 'required|string|max:50|unique:procurement_folders,pr_number,' . ($this->folderId ?? 'NULL') . ',id',
+                'compilePurpose'        => 'required|string|max:1000',
+                'recommendedById'       => 'required|integer|exists:employees,id',
+                'approvedById'          => 'required|integer|exists:employees,id',
             ]);
             $this->currentStep = 3;
         }
@@ -91,6 +108,7 @@ new class extends Component
     // Compile Modal State
     // -------------------------------------------------------------------------
     public bool   $showCompileModal  = false;
+    public string $compileTrackingNumber = '';
     public string $compilePrNumber   = '';
     public string $compilePurpose    = '';
     public ?string $requestedById    = null;
@@ -279,7 +297,8 @@ new class extends Component
     {
         if (empty($this->selectedIds)) return;
         $this->showCompileModal = true;
-        $this->compilePrNumber  = $this->generateNextPrNumber();
+        $this->compileTrackingNumber = $this->generateNextPrNumber();
+        $this->compilePrNumber  = $this->compileTrackingNumber;
         $this->compilePurpose   = '';
     }
 
@@ -294,10 +313,11 @@ new class extends Component
     public function processPrGeneration(): void
     {
         $this->validate([
-            'compilePrNumber'  => 'required|string|max:50|unique:procurement_folders,pr_number',
-            'compilePurpose'   => 'required|string|max:1000',
-            'recommendedById'  => 'required|integer|exists:employees,id',
-            'approvedById'     => 'required|integer|exists:employees,id',
+            'compileTrackingNumber' => 'required|string|max:50|unique:procurement_folders,tracking_number,' . ($this->folderId ?? 'NULL') . ',id',
+            'compilePrNumber'       => 'required|string|max:50|unique:procurement_folders,pr_number,' . ($this->folderId ?? 'NULL') . ',id',
+            'compilePurpose'        => 'required|string|max:1000',
+            'recommendedById'       => 'required|integer|exists:employees,id',
+            'approvedById'          => 'required|integer|exists:employees,id',
         ]);
 
         if (empty($this->selectedIds)) {
@@ -306,8 +326,14 @@ new class extends Component
         }
 
         // Load selected distributions with their COB items
+        // If editing, allow distributions that are currently locked into this folder
         $distributions = CobItemDistribution::whereIn('id', $this->selectedIds)
-            ->whereNull('pr_item_id')      // Only unlocked rows
+            ->where(function ($q) {
+                $q->whereNull('pr_item_id')
+                  ->orWhereHas('prItem', function ($sq) {
+                      $sq->where('folder_id', $this->folderId);
+                  });
+            })
             ->whereNull('deleted_at')
             ->with(['cobItem'])
             ->get();
@@ -317,31 +343,62 @@ new class extends Component
             return;
         }
 
-        // Determine current user as Requested By
-        $requestedEmployee = Employee::where('fullname', auth()->user()->name)->first();
+        // Resolve the requesting employee via the verified FK link on the users table
+        $requestedEmployee = auth()->user()->employee;
         $requestedById = $requestedEmployee?->id;
-        $requestedByDesignation = $requestedEmployee ? $requestedEmployee->designation : 'Requesting Officer';
+        $requestedByDesignation = $requestedEmployee?->designation ?? 'Requesting Officer';
 
         // Fetch snapshot titles for other signatories
         $recommendedEmployee = Employee::findOrFail((int) $this->recommendedById);
         $approvedEmployee    = Employee::findOrFail((int) $this->approvedById);
 
-        DB::transaction(function () use ($distributions, $requestedById, $requestedByDesignation, $recommendedEmployee, $approvedEmployee) {
-            // Create the ProcurementFolder with all three signatory snapshots
-            $folder = ProcurementFolder::create([
-                'tracking_number'              => $this->compilePrNumber,   // legacy column populated for backward compat
-                'pr_number'                    => $this->compilePrNumber,
-                'project_title'                => 'PR compiled from COB on ' . now()->format('Y-m-d H:i'),
-                'procurement_method'           => 'Shopping',
-                'overall_purpose'              => $this->compilePurpose,
-                'status'                       => 'DRAFT',
-                'requested_by_id'              => $requestedById,
-                'requested_by_designation'     => $requestedByDesignation,
-                'recommended_by_id'            => $this->recommendedById,
-                'recommended_by_designation'   => $recommendedEmployee->designation,
-                'approved_by_id'               => $this->approvedById,
-                'approved_by_designation'      => $approvedEmployee->designation,
-            ]);
+        $folder = DB::transaction(function () use ($distributions, $requestedEmployee, $requestedById, $requestedByDesignation, $recommendedEmployee, $approvedEmployee) {
+            if ($this->folderId) {
+                // Fetch the existing folder
+                $folder = ProcurementFolder::findOrFail($this->folderId);
+
+                // Release old allocations
+                CobItemDistribution::whereHas('prItem', function($q) {
+                    $q->where('folder_id', $this->folderId);
+                })->update([
+                    'pr_item_id' => null,
+                    'procured_quantity' => 0,
+                ]);
+
+                // Delete old items
+                $folder->prItems()->delete();
+
+                // Update folder details
+                $folder->update([
+                    'tracking_number'              => $this->compileTrackingNumber,
+                    'pr_number'                    => $this->compilePrNumber,
+                    'overall_purpose'              => $this->compilePurpose,
+                    'requesting_unit'              => $requestedEmployee?->office_division,
+                    'requested_by_id'              => $requestedById,
+                    'requested_by_designation'     => $requestedByDesignation,
+                    'recommended_by_id'            => $this->recommendedById,
+                    'recommended_by_designation'   => $recommendedEmployee->designation,
+                    'approved_by_id'               => $this->approvedById,
+                    'approved_by_designation'      => $approvedEmployee->designation,
+                ]);
+            } else {
+                // Create new folder
+                $folder = ProcurementFolder::create([
+                    'tracking_number'              => $this->compileTrackingNumber,
+                    'pr_number'                    => $this->compilePrNumber,
+                    'project_title'                => 'PR compiled from COB on ' . now()->format('Y-m-d H:i'),
+                    'procurement_method'           => 'Shopping',
+                    'overall_purpose'              => $this->compilePurpose,
+                    'status'                       => 'DRAFT',
+                    'requesting_unit'              => $requestedEmployee?->office_division,
+                    'requested_by_id'              => $requestedById,
+                    'requested_by_designation'     => $requestedByDesignation,
+                    'recommended_by_id'            => $this->recommendedById,
+                    'recommended_by_designation'   => $recommendedEmployee->designation,
+                    'approved_by_id'               => $this->approvedById,
+                    'approved_by_designation'      => $approvedEmployee->designation,
+                ]);
+            }
 
             // Group selected distributions by cob_item_id and create one PrItem per group
             $grouped = $distributions->groupBy('cob_item_id');
@@ -368,12 +425,16 @@ new class extends Component
                         'procured_quantity'   => DB::raw('allocated_quantity'),
                     ]);
             }
+
+            return $folder;
         });
 
         // Reset state and notify parent
         $this->selectedIds      = [];
         $this->showCompileModal = false;
-        $this->compilePrNumber  = $this->generateNextPrNumber();
+        $this->folderId         = null;
+        $this->compileTrackingNumber = $this->generateNextPrNumber();
+        $this->compilePrNumber  = $this->compileTrackingNumber;
         $this->compilePurpose   = '';
         $this->requestedById    = null;
         $this->recommendedById  = null;
@@ -391,12 +452,26 @@ new class extends Component
     {
         $query = CobItem::query()
             ->whereHas('distributions', function ($q) {
-                $q->whereNull('pr_item_id')          // Only unlocked (not yet compiled)
+                $q->where(function ($sq) {
+                    $sq->whereNull('pr_item_id')
+                      ->when($this->folderId, function ($ssq) {
+                          $ssq->orWhereHas('prItem', function ($sub) {
+                              $sub->where('folder_id', $this->folderId);
+                          });
+                      });
+                })
                   ->whereNull('deleted_at')
                   ->when($this->filterOfficeId, fn($sq) => $sq->where('office_id', $this->filterOfficeId));
             })
             ->with(['distributions' => function ($q) {
-                $q->whereNull('pr_item_id')
+                $q->where(function ($sq) {
+                    $sq->whereNull('pr_item_id')
+                      ->when($this->folderId, function ($ssq) {
+                          $ssq->orWhereHas('prItem', function ($sub) {
+                              $sub->where('folder_id', $this->folderId);
+                          });
+                      });
+                })
                   ->whereNull('deleted_at')
                   ->when($this->filterOfficeId, fn($sq) => $sq->where('office_id', $this->filterOfficeId))
                   ->with(['office', 'employee']);
@@ -813,18 +888,35 @@ new class extends Component
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 items-stretch">
                     {{-- Left Side: Form Inputs --}}
                     <div class="space-y-5 flex flex-col h-full">
-                        {{-- PR Number --}}
-                        <div>
-                            <label class="block text-[11px] font-bold uppercase tracking-wider text-[#43474f] mb-1.5">
-                                Purchase Request (PR) Number <span class="text-[#ba1a1a]">*</span>
-                            </label>
-                            <div class="relative">
-                                <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[#43474f] text-[18px]">tag</span>
-                                <input type="text" wire:model="compilePrNumber"
-                                       placeholder="e.g. PR-2026-00042"
-                                       class="w-full pl-9 pr-4 py-3 bg-[#f9f9fe] border border-[#c3c6d1] rounded-xl text-sm focus:ring-2 focus:ring-[#001e40] outline-none transition-all font-mono font-bold text-[#001e40]"/>
+                        {{-- Numbers Grid --}}
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            {{-- Tracking Number --}}
+                            <div>
+                                <label class="block text-[11px] font-bold uppercase tracking-wider text-[#43474f] mb-1.5">
+                                    Tracking Number <span class="text-[#43474f]/50">(Auto-generated)</span>
+                                </label>
+                                <div class="relative">
+                                    <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[#43474f]/60 text-[18px]">lock</span>
+                                    <input type="text" wire:model="compileTrackingNumber" readonly disabled
+                                           class="w-full pl-9 pr-4 py-3 bg-[#eeedf2]/50 border border-[#c3c6d1] rounded-xl text-sm outline-none transition-all font-mono font-bold text-[#43474f]/70 cursor-not-allowed"/>
+                                </div>
+                                <p class="text-[9px] text-[#43474f]/60 mt-1">System-managed tracking reference.</p>
                             </div>
-                            @error('compilePrNumber') <p class="text-[11px] text-[#ba1a1a] mt-1">{{ $message }}</p> @enderror
+
+                            {{-- PR Number --}}
+                            <div>
+                                <label class="block text-[11px] font-bold uppercase tracking-wider text-[#43474f] mb-1.5">
+                                    Purchase Request (PR) Number <span class="text-[#ba1a1a]">*</span>
+                                </label>
+                                <div class="relative">
+                                    <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[#001e40] text-[18px]">edit_note</span>
+                                    <input type="text" wire:model="compilePrNumber"
+                                           placeholder="e.g. PR-2026-00042"
+                                           class="w-full pl-9 pr-4 py-3 bg-[#f9f9fe] border border-[#c3c6d1] rounded-xl text-sm focus:ring-2 focus:ring-[#001e40] outline-none transition-all font-mono font-bold text-[#001e40]"/>
+                                </div>
+                                @error('compilePrNumber') <p class="text-[11px] text-[#ba1a1a] mt-1">{{ $message }}</p> @enderror
+                                <p class="text-[9px] text-[#43474f]/60 mt-1">Initially matches recommended tracking. You may customize it.</p>
+                            </div>
                         </div>
 
                         {{-- Signatories Selection --}}
@@ -940,9 +1032,15 @@ new class extends Component
                                 <p class="text-[12px] text-[#43474f] leading-relaxed max-w-2xl"><strong class="text-[#001e40]">Purpose:</strong> {{ $compilePurpose }}</p>
                             @endif
                         </div>
-                        <div class="text-right">
-                            <p class="text-[10px] uppercase font-bold tracking-wider text-[#43474f]/50">PR Number</p>
-                            <p class="font-mono text-sm font-bold text-[#001e40] bg-[#001e40]/5 px-2.5 py-1 rounded-lg inline-block border border-[#001e40]/10 mt-1">{{ $compilePrNumber }}</p>
+                        <div class="flex items-start gap-4">
+                            <div class="text-right">
+                                <p class="text-[10px] uppercase font-bold tracking-wider text-[#43474f]/50">Tracking Number</p>
+                                <p class="font-mono text-sm font-bold text-[#43474f]/70 bg-[#eeedf2]/50 px-2.5 py-1 rounded-lg inline-block border border-[#c3c6d1] mt-1">{{ $compileTrackingNumber }}</p>
+                            </div>
+                            <div class="text-right">
+                                <p class="text-[10px] uppercase font-bold tracking-wider text-[#43474f]/50">PR Number</p>
+                                <p class="font-mono text-sm font-bold text-[#001e40] bg-[#001e40]/5 px-2.5 py-1 rounded-lg inline-block border border-[#001e40]/10 mt-1">{{ $compilePrNumber }}</p>
+                            </div>
                         </div>
                     </div>
 
@@ -963,7 +1061,7 @@ new class extends Component
                                 @foreach($this->reviewItems as $item)
                                     <tr>
                                         <td class="px-4 py-3 text-xs text-[#43474f]">
-                                            <span class="px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider rounded bg-[#eeedf2] text-[#43474f]">
+                                            <span class="text-[9px] font-bold uppercase tracking-wider text-[#43474f]">
                                                 {{ $item['category'] }}
                                             </span>
                                         </td>

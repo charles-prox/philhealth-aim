@@ -19,14 +19,14 @@
     <style>
         @page {
             size: A4;
-            margin: 0.4in 0.5in 0.4in 0.5in;
+            margin: 0.3in 0.3in 0.3in 0.3in;
         }
 
         * { box-sizing: border-box; }
 
         body {
             font-family: Arial, sans-serif;
-            font-size: 11px;
+            font-size: 12px;
             color: #000;
             margin: 0;
             padding: 0;
@@ -171,11 +171,30 @@
         }
         .sig-pos {
             display: block;
-            font-size: 10px;
+            font-size: 11px;
         }
     </style>
 </head>
 <body>
+
+    @if(($folder->status ?? '') === 'ROUTING')
+        <div style="
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) rotate(-45deg);
+            font-size: 70px;
+            color: rgba(220, 38, 38, 0.12);
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 5px;
+            pointer-events: none;
+            z-index: 9999;
+            white-space: nowrap;
+        ">
+            ROUTING REVIEW
+        </div>
+    @endif
 
     <table class="layout-table">
         <thead>
@@ -217,7 +236,27 @@
         <tbody>
             <tr>
                 <td>
-                    <div id="content">
+                    <div id="content" style="position: relative;">
+
+                        @if(($folder->status ?? '') === 'APPROVED')
+                            <div style="
+                                position: absolute;
+                                top: 0;
+                                right: 0;
+                                font-size: 8px;
+                                color: #4b5563;
+                                font-family: monospace;
+                                border: 1.5px solid #000;
+                                padding: 4px 8px;
+                                background-color: #f9fafb;
+                                text-align: center;
+                                line-height: 1.2;
+                                z-index: 100;
+                            ">
+                                <strong>SYSTEM SECURITY CODE</strong><br>
+                                <span style="font-size: 10px; font-weight: bold;">TRK-{{ strtoupper(substr(md5($folder->id), 0, 12)) }}</span>
+                            </div>
+                        @endif
 
                         <div class="header-title">PURCHASE REQUEST</div>
                         <div class="entity-info">
@@ -225,10 +264,8 @@
                         </div>
                         <table style="margin-bottom: 20px;width: 100%;">
                             <tr>
-                                <td style="width: 10%;">
-                                    <div style="margin-bottom: 5px;">Division:</div>
-                                    
-                                    
+                                <td style="width: 8%;">
+                                    <div >Division:</div>
                                 </td>
                                 <td style="border-bottom: 1px solid #000;"><div>Management Services Division (MSD)</div></td>
                                 <td style="width: 30%;"> </td>
@@ -242,11 +279,11 @@
                             </tr>
                             <tr>
                                 
-                                <td style="width: 10%;"><div style="margin-bottom: 5px;">Section:</div></td>
+                                <td style="width: 8%;"><div >Section:</div></td>
                                 <td style="border-bottom: 1px solid #000;"><div>General Services Unit (GSU)</div></td>
                                 <td style="width: 30%;"> </td>
                                 <td >
-                                    <strong>Date:</strong>
+                                    Date:
                                 </td>
                                 <td style="border-bottom: 1px solid #000;">
                                      {{ $folder->created_at->format('F d, Y') }}
@@ -260,11 +297,11 @@
 
                             {{-- Column headers --}}
                             <tr class="text-center font-bold bg-gray">
-                                <th style="width: 10%;">Item No.</th>
+                                <th style="width: 8%;">Item No.</th>
                                 <th style="width: 10%;">Unit</th>
                                 <th style="width: 45%;">Item Description</th>
                                 <th style="width: 10%;">Quantity</th>
-                                <th style="width: 10%;">Unit Cost</th>
+                                <th style="width: 12%;">Unit Cost</th>
                                 <th style="width: 15%;">Total Cost</th>
                             </tr>
 
@@ -331,8 +368,37 @@
                                     <td style="width: 28%;" class="font-bold">Approved by:</td>
                                 </tr>
                                 <tr>
-                                    <td style="text-align: left; padding-bottom: 30px;">Signature:</td>
-                                    <td></td><td></td><td></td>
+                                    <td style="text-align: left; padding-bottom: 30px; vertical-align: middle;">Signature:</td>
+                                    <td style="vertical-align: middle; text-align: center; padding: 4px;">
+                                        @if($folder->requested_signed_at)
+                                            <div style="font-family: 'Courier New', monospace; font-size: 8px; color: #1e3a8a; line-height: 1.2; border: 1px dashed #1e3a8a; padding: 4px; display: inline-block;">
+                                                <strong>DIGITALLY SIGNED</strong><br>
+                                                {{ $folder->requested_signed_at->format('Y-m-d H:i:s') }}
+                                            </div>
+                                        @else
+                                            <div style="height: 35px;"></div>
+                                        @endif
+                                    </td>
+                                    <td style="vertical-align: middle; text-align: center; padding: 4px;">
+                                        @if($folder->recommended_signed_at)
+                                            <div style="font-family: 'Courier New', monospace; font-size: 8px; color: #1e3a8a; line-height: 1.2; border: 1px dashed #1e3a8a; padding: 4px; display: inline-block;">
+                                                <strong>DIGITALLY SIGNED</strong><br>
+                                                {{ $folder->recommended_signed_at->format('Y-m-d H:i:s') }}
+                                            </div>
+                                        @else
+                                            <div style="height: 35px;"></div>
+                                        @endif
+                                    </td>
+                                    <td style="vertical-align: middle; text-align: center; padding: 4px;">
+                                        @if($folder->approved_signed_at)
+                                            <div style="font-family: 'Courier New', monospace; font-size: 8px; color: #1e3a8a; line-height: 1.2; border: 1px dashed #1e3a8a; padding: 4px; display: inline-block;">
+                                                <strong>DIGITALLY SIGNED</strong><br>
+                                                {{ $folder->approved_signed_at->format('Y-m-d H:i:s') }}
+                                            </div>
+                                        @else
+                                            <div style="height: 35px;"></div>
+                                        @endif
+                                    </td>
                                 </tr>
                                 <tr>
                                     <td style="text-align: left;">Printed Name:</td>

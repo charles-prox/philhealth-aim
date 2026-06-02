@@ -23,10 +23,13 @@ class ProcurementFolder extends Model
         'submission_due_date',
         'requested_by_id',
         'requested_by_designation',
+        'requested_signed_at',
         'approved_by_id',
         'approved_by_designation',
+        'approved_signed_at',
         'recommended_by_id',
         'recommended_by_designation',
+        'recommended_signed_at',
         // Distribution-First fields
         'pr_number',
         'project_title',
@@ -37,6 +40,9 @@ class ProcurementFolder extends Model
         'geps_posting_from' => 'date',
         'geps_posting_to' => 'date',
         'submission_due_date' => 'date',
+        'requested_signed_at' => 'datetime',
+        'recommended_signed_at' => 'datetime',
+        'approved_signed_at' => 'datetime',
     ];
 
     public function prItems()
@@ -72,5 +78,10 @@ class ProcurementFolder extends Model
     public function recommendedBy()
     {
         return $this->belongsTo(Employee::class, 'recommended_by_id');
+    }
+
+    public function logs()
+    {
+        return $this->hasMany(ProcurementLog::class, 'procurement_folder_id')->orderBy('created_at', 'desc');
     }
 }

@@ -51,17 +51,19 @@ new class extends Component
         </x-sidebar-link>
 
 
-        <x-sidebar-link :href="route('inventory')" :active="request()->routeIs('inventory')" icon="inventory_2">
-            Inventory
-        </x-sidebar-link>
+        @hasanyrole('Admin|Procurement Officer|Inventory Manager')
+            <x-sidebar-link :href="route('inventory')" :active="request()->routeIs('inventory')" icon="inventory_2">
+                Inventory
+            </x-sidebar-link>
 
-        <x-sidebar-link :href="route('accountability')" :active="request()->routeIs('accountability')" icon="assignment_ind">
-            Accountability
-        </x-sidebar-link>
+            <x-sidebar-link :href="route('accountability')" :active="request()->routeIs('accountability')" icon="assignment_ind">
+                Accountability
+            </x-sidebar-link>
 
-        <x-sidebar-link :href="route('repairs')" :active="request()->routeIs('repairs')" icon="build">
-            Repairs
-        </x-sidebar-link>
+            <x-sidebar-link :href="route('repairs')" :active="request()->routeIs('repairs')" icon="build">
+                Repairs
+            </x-sidebar-link>
+        @endrole
 
         <x-sidebar-link :href="route('reports')" :active="request()->routeIs('reports')" icon="assessment">
             Reports

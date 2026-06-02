@@ -24,11 +24,21 @@ class User extends Authenticatable
         'username',
         'email',
         'password',
+        'employee_id',
         'two_factor_enabled',
         'two_factor_secret',
         'two_factor_code',
         'two_factor_expires_at',
     ];
+
+    /**
+     * The verified Employee HR profile linked to this user account.
+     * This is the single source of truth for all audit-trail actor resolution.
+     */
+    public function employee(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(\App\Models\Employee::class);
+    }
 
     /**
      * Generate and save a new 2FA code.
