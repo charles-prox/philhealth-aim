@@ -1,6 +1,8 @@
 <?php
 
 use App\Models\ProcurementFolder;
+use App\Models\AppHeader;
+use Illuminate\Support\Facades\DB;
 use Livewire\Volt\Component;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\On;
@@ -9,6 +11,13 @@ use Livewire\WithPagination;
 new #[Layout('layouts.app')] class extends Component
 {
     use WithPagination;
+
+    public function mount(): void
+    {
+        if (!auth()->user()->hasAnyRole(['Office Head', 'Admin'])) {
+            abort(403, 'Unauthorized access.');
+        }
+    }
 
     public $search = '';
     public bool $isCreatingPr = false;
@@ -60,12 +69,13 @@ new #[Layout('layouts.app')] class extends Component
         $this->resetPage();
     }
 
-    public function generateAndViewPdf($prNumber)
+    public function generateAndViewPdf($folderId)
     {
         $this->errorMessage = null;
-        $folder = ProcurementFolder::where('pr_number', $prNumber)->firstOrFail();
+        $folder = ProcurementFolder::findOrFail($folderId);
         
-        $storagePath = "pr/{$folder->pr_number}.pdf";
+        $identifier = $folder->pr_number ?: $folder->tracking_number;
+        $storagePath = "pr/{$identifier}.pdf";
         $disk = \Illuminate\Support\Facades\Storage::disk('public');
 
         if (!$disk->exists($storagePath)) {
@@ -82,15 +92,25 @@ new #[Layout('layouts.app')] class extends Component
         }
         
         // Dispatch browser event to open new tab
-        $this->dispatch('open-pdf', url: route('procurement.pr.pdf', $folder->pr_number));
+        $this->dispatch('open-pdf', url: route('procurement.pr.pdf', $folder->id));
     }
 
     #[On('open-new-pr')]
     public function openNewPr()
     {
-        if (auth()->user()->hasAnyRole(['MSD Head', 'Admin Head'])) {
+        if (!auth()->user()->hasAnyRole(['Admin', 'Procurement Officer', 'Document custodian', 'Office Head'])) {
             abort(403, 'Unauthorized action.');
         }
+
+        $currentYear = \App\Models\BudgetYear::where('status', 'OPEN')->value('fiscal_year') ?? now()->year;
+        $appGateCleared = AppHeader::where('fiscal_year', $currentYear)
+            ->where('is_approved', true)
+            ->exists();
+        if (!$appGateCleared) {
+            $this->errorMessage = "PR Creation Suspended: The Annual Procurement Plan (APP) for fiscal year {$currentYear} has not been uploaded or approved by the Admin Head.";
+            return;
+        }
+
         $this->editingFolderId = null;
         $this->isCreatingPr = true;
         $this->dispatch('open-pr-creation');
@@ -98,9 +118,19 @@ new #[Layout('layouts.app')] class extends Component
 
     public function editPr($id)
     {
-        if (auth()->user()->hasAnyRole(['MSD Head', 'Admin Head'])) {
+        if (!auth()->user()->hasAnyRole(['Admin', 'Procurement Officer', 'Document custodian', 'Office Head'])) {
             abort(403, 'Unauthorized action.');
         }
+
+        $currentYear = \App\Models\BudgetYear::where('status', 'OPEN')->value('fiscal_year') ?? now()->year;
+        $appGateCleared = AppHeader::where('fiscal_year', $currentYear)
+            ->where('is_approved', true)
+            ->exists();
+        if (!$appGateCleared) {
+            $this->errorMessage = "PR Editing Suspended: The Annual Procurement Plan (APP) for fiscal year {$currentYear} has not been approved.";
+            return;
+        }
+
         $this->errorMessage = null;
         $this->successMessage = null;
         $this->editingFolderId = $id;
@@ -130,7 +160,9 @@ new #[Layout('layouts.app')] class extends Component
                 'requested_signed_at' => now(),
             ]);
 
-            \Illuminate\Support\Facades\Storage::disk('public')->delete("pr/{$folder->pr_number}.pdf");
+            if ($folder->pr_number) {
+                \Illuminate\Support\Facades\Storage::disk('public')->delete("pr/{$folder->pr_number}.pdf");
+            }
 
             \App\Models\ProcurementLog::create([
                 'procurement_folder_id' => $folder->id,
@@ -141,6 +173,35 @@ new #[Layout('layouts.app')] class extends Component
         });
 
         $this->successMessage = "PR submitted & routed for signature successfully!";
+    }
+
+    public function cancelSubmission($id)
+    {
+        $folder = ProcurementFolder::findOrFail($id);
+        $user = auth()->user();
+        if (!$user->hasRole('Admin') && $folder->requested_by_id !== $user->employee_id) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        if ($folder->pr_number) {
+            $this->errorMessage = "Cannot cancel a PR that already has an official PR number assigned.";
+            return;
+        }
+
+        DB::transaction(function () use ($folder) {
+            $folder->update([
+                'status' => 'DRAFT',
+            ]);
+
+            \App\Models\ProcurementLog::create([
+                'procurement_folder_id' => $folder->id,
+                'action' => 'REJECTED',
+                'actor_id' => auth()->user()->employee_id,
+                'remarks' => 'Submission cancelled by requester. Returned to DRAFT.',
+            ]);
+        });
+
+        $this->successMessage = "Submission cancelled. PR returned to drafts.";
     }
 
     public function approvePr($id)
@@ -178,7 +239,9 @@ new #[Layout('layouts.app')] class extends Component
 
             if (!empty($updates)) {
                 $folder->update($updates);
-                \Illuminate\Support\Facades\Storage::disk('public')->delete("pr/{$folder->pr_number}.pdf");
+                if ($folder->pr_number) {
+                    \Illuminate\Support\Facades\Storage::disk('public')->delete("pr/{$folder->pr_number}.pdf");
+                }
                 \App\Models\ProcurementLog::create([
                     'procurement_folder_id' => $folder->id,
                     'action' => $action,
@@ -216,7 +279,9 @@ new #[Layout('layouts.app')] class extends Component
                 'approved_signed_at' => null,
             ]);
 
-            \Illuminate\Support\Facades\Storage::disk('public')->delete("pr/{$folder->pr_number}.pdf");
+            if ($folder->pr_number) {
+                \Illuminate\Support\Facades\Storage::disk('public')->delete("pr/{$folder->pr_number}.pdf");
+            }
 
             \App\Models\ProcurementLog::create([
                 'procurement_folder_id' => $folder->id,
@@ -241,14 +306,26 @@ new #[Layout('layouts.app')] class extends Component
         $folder = ProcurementFolder::findOrFail($this->confirmingDeleteId);
 
         DB::transaction(function () use ($folder) {
-            \App\Models\CobItemDistribution::whereHas('prItem', function($q) use ($folder) {
-                $q->where('folder_id', $folder->id);
+            \App\Models\CobItemDistribution::whereHas('prItem', function($q) {
+                $q->where('pr_items.folder_id', $this->confirmingDeleteId);
             })->update([
                 'pr_item_id' => null,
                 'procured_quantity' => 0,
             ]);
 
-            \Illuminate\Support\Facades\Storage::disk('public')->delete("pr/{$folder->pr_number}.pdf");
+            // Release APP Line Item utilized budget
+            foreach ($folder->prItems as $item) {
+                if ($item->app_line_item_id) {
+                    $appLineItem = \App\Models\AppLineItem::find($item->app_line_item_id);
+                    if ($appLineItem) {
+                        $appLineItem->decrement('utilized_budget', $item->estimated_total_cost);
+                    }
+                }
+            }
+
+            if ($folder->pr_number) {
+                \Illuminate\Support\Facades\Storage::disk('public')->delete("pr/{$folder->pr_number}.pdf");
+            }
 
             $folder->delete();
         });
@@ -297,7 +374,9 @@ new #[Layout('layouts.app')] class extends Component
                 'approved_signed_at' => null,
             ]);
 
-            \Illuminate\Support\Facades\Storage::disk('public')->delete("pr/{$folder->pr_number}.pdf");
+            if ($folder->pr_number) {
+                \Illuminate\Support\Facades\Storage::disk('public')->delete("pr/{$folder->pr_number}.pdf");
+            }
 
             \App\Models\ProcurementLog::create([
                 'procurement_folder_id' => $folder->id,
@@ -323,6 +402,12 @@ new #[Layout('layouts.app')] class extends Component
         $this->viewingHistoryFolderId = null;
     }
 
+    #[On('app-status-updated')]
+    public function onAppStatusUpdated()
+    {
+        // Force refresh state on APP updates
+    }
+
     public function with(): array
     {
         $user = auth()->user();
@@ -330,28 +415,19 @@ new #[Layout('layouts.app')] class extends Component
         $employeeId = $employee?->id;
 
         $isAdmin = $user->hasRole('Admin');
-        $isApprover = $user->hasAnyRole(['MSD Head', 'Admin Head']);
 
         $query = ProcurementFolder::with(['purchaseOrder', 'prItems']);
 
         // Enforce RBAC Database Scoping
         if ($isAdmin) {
-            // Admin sees everything
-        } elseif ($isApprover) {
-            // Approver Inbox: only ROUTING status, where they are designated as the approver or recommender
-            $query->where('status', 'ROUTING')
-                  ->where(function($q) use ($employeeId) {
-                      $q->where('approved_by_id', $employeeId)
-                        ->orWhere('recommended_by_id', $employeeId);
-                  });
+            // Admins see all offices globally for inspection purposes
         } else {
-            // Recommender/Compiler: folders matching their unit or created by them
-            $query->where(function ($q) use ($employeeId, $employee) {
-                $q->where('requested_by_id', $employeeId);
-                if ($employee?->office_division) {
-                    $q->orWhere('requesting_unit', $employee->office_division);
-                }
-            });
+            // Office Head: see all PRs within their entire office/division
+            if ($employee?->office_division) {
+                $query->where('requesting_unit', $employee->office_division);
+            } else {
+                $query->where('requested_by_id', $employeeId);
+            }
         }
 
         // Apply Search Filter inside a nested closure to respect the RBAC scoping
@@ -374,41 +450,20 @@ new #[Layout('layouts.app')] class extends Component
         if ($isAdmin) {
             $totalActive = ProcurementFolder::whereNotIn('status', ['PO_RELEASED'])->count();
             $totalPending = ProcurementFolder::where('status', 'DRAFT')->count();
-        } elseif ($isApprover) {
-            $totalActive = ProcurementFolder::where('status', 'ROUTING')
-                ->where(function($q) use ($employeeId) {
-                    $q->where('approved_by_id', $employeeId)->orWhere('recommended_by_id', $employeeId);
-                })->count();
-            $totalPending = $totalActive; // pending approval
         } else {
             $totalActive = ProcurementFolder::whereNotIn('status', ['PO_RELEASED'])
-                ->where(function ($q) use ($employeeId, $employee) {
-                    $q->where('requested_by_id', $employeeId);
-                    if ($employee?->office_division) {
-                        $q->orWhere('requesting_unit', $employee->office_division);
-                    }
-                })->count();
+                ->where('requesting_unit', $employee?->office_division)
+                ->count();
             $totalPending = ProcurementFolder::where('status', 'DRAFT')
-                ->where(function ($q) use ($employeeId, $employee) {
-                    $q->where('requested_by_id', $employeeId);
-                    if ($employee?->office_division) {
-                        $q->orWhere('requesting_unit', $employee->office_division);
-                    }
-                })->count();
+                ->where('requesting_unit', $employee?->office_division)
+                ->count();
         }
 
-        // Approver-specific KPIs: total pending value of ROUTING PRs assigned to them
-        $approverPendingValue = 0;
-        if ($isApprover && $employeeId) {
-            $approverPendingValue = ProcurementFolder::where('status', 'ROUTING')
-                ->where(function($q) use ($employeeId) {
-                    $q->where('approved_by_id', $employeeId)
-                      ->orWhere('recommended_by_id', $employeeId);
-                })
-                ->with('prItems')
-                ->get()
-                ->sum(fn($f) => $f->prItems->sum(fn($i) => $i->estimated_total_cost));
-        }
+        // Check if APP gate is cleared for the current year
+        $currentYear = \App\Models\BudgetYear::where('status', 'OPEN')->value('fiscal_year') ?? now()->year;
+        $appGateCleared = AppHeader::where('fiscal_year', $currentYear)
+            ->where('is_approved', true)
+            ->exists();
 
         return [
             'folders'              => $folders,
@@ -416,9 +471,16 @@ new #[Layout('layouts.app')] class extends Component
             'totalPending'         => $totalPending,
             'totalValue'           => \App\Models\PurchaseOrder::sum('total_amount') ?? 0,
             'avgTurnaround'        => 0,
-            'isApprover'           => $isApprover,
+            'isApprover'           => false,
             'isAdmin'              => $isAdmin,
-            'approverPendingValue' => $approverPendingValue,
+            'isProcurementOfficer' => false,
+            'isDocumentCustodian'  => false,
+            'isOfficeHead'         => true,
+            'approverPendingValue' => 0,
+            'triageFolders'        => collect(),
+            'triageCount'          => 0,
+            'appGateCleared'       => $appGateCleared,
+            'currentYear'          => $currentYear,
         ];
     }
 }; ?>
@@ -429,7 +491,7 @@ new #[Layout('layouts.app')] class extends Component
     @push('header_actions')
         @if($isCreatingPr)
             <x-primary-button variant="secondary" icon="arrow_back" x-on:click="$dispatch('close-pr-creation')">Back to Registry</x-primary-button>
-        @elseif(!auth()->user()->hasAnyRole(['MSD Head', 'Admin Head']))
+        @elseif(auth()->user()->hasAnyRole(['Admin', 'Procurement Officer', 'Document custodian', 'Office Head']) && $appGateCleared)
             <x-primary-button icon="add" x-on:click="$dispatch('open-new-pr')">New PR</x-primary-button>
         @endif
     @endpush
@@ -447,6 +509,20 @@ new #[Layout('layouts.app')] class extends Component
                  x-transition:leave-start="opacity-100 translate-y-0"
                  x-transition:leave-end="opacity-0 -translate-y-4"
                  class="space-y-6">
+
+            {{-- APP Warning Banner --}}
+            @if(!$appGateCleared)
+                <div class="flex items-start gap-4 bg-amber-50 border border-amber-200 text-amber-900 px-5 py-4 rounded-xl shadow-sm mb-4">
+                    <span class="material-symbols-outlined text-amber-600 text-[28px] mt-0.5" style="font-variation-settings: 'FILL' 1;">warning</span>
+                    <div class="flex-1">
+                        <h4 class="text-sm font-bold text-amber-950">Procurement Pipeline Suspended</h4>
+                        <p class="text-xs text-amber-800 mt-1 leading-relaxed">
+                            No active Annual Procurement Plan (APP) has been approved for the current fiscal year ({{ $currentYear }}). 
+                            Purchase Request compilation is locked until the APP is uploaded and activated by the Admin Head.
+                        </p>
+                    </div>
+                </div>
+            @endif
 
             {{-- Success Banner --}}
             @if($successMessage)
@@ -470,351 +546,13 @@ new #[Layout('layouts.app')] class extends Component
                 </div>
             @endif
 
-        {{-- ═══════════════════════════════════════════════════════════════ --}}
-        {{-- APPROVER / RECOMMENDER INBOX VIEW                               --}}
-        {{-- ═══════════════════════════════════════════════════════════════ --}}
-        @if($isApprover)
-
-        {{-- Approver KPI Bento Grid --}}
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-gutter">
-            {{-- PRs Awaiting Signature --}}
-            <div class="bg-[#001e40] text-white p-gutter rounded-xl shadow-sm flex flex-col justify-between">
-                <span class="material-symbols-outlined text-4xl opacity-40" style="font-variation-settings:'FILL' 1;">signature</span>
-                <div class="mt-4">
-                    <p class="text-3xl font-bold tracking-tight">{{ $totalPending }}</p>
-                    <p class="text-[11px] font-bold uppercase tracking-wider opacity-70 mt-1">PRs Awaiting Signature</p>
-                </div>
-            </div>
-            {{-- Total Pending Value --}}
-            <div class="bg-white border border-[#c3c6d1] p-gutter rounded-xl shadow-sm flex flex-col justify-between">
-                <span class="material-symbols-outlined text-[28px] text-[#1f477b] opacity-80" style="font-variation-settings:'FILL' 1;">payments</span>
-                <div class="mt-3">
-                    <p class="text-2xl font-bold text-[#001e40] tracking-tight">
-                        @if($approverPendingValue >= 1000000)
-                            ₱{{ number_format($approverPendingValue / 1000000, 2) }}M
-                        @elseif($approverPendingValue >= 1000)
-                            ₱{{ number_format($approverPendingValue / 1000, 1) }}K
-                        @else
-                            ₱{{ number_format($approverPendingValue, 2) }}
-                        @endif
-                    </p>
-                    <p class="text-[11px] font-bold uppercase tracking-wider text-[#43474f] mt-1">Total Pending Value</p>
-                </div>
-            </div>
-            {{-- Budget Compliance --}}
-            <div class="bg-white border border-[#c3c6d1] p-gutter rounded-xl shadow-sm flex flex-col justify-between">
-                <span class="material-symbols-outlined text-[28px] text-green-600 opacity-80" style="font-variation-settings:'FILL' 1;">verified_user</span>
-                <div class="mt-3">
-                    <p class="text-2xl font-bold text-green-700 tracking-tight">100%</p>
-                    <p class="text-[11px] font-bold uppercase tracking-wider text-[#43474f] mt-1">Budget Compliance</p>
-                </div>
-            </div>
-            {{-- Avg Approval Time --}}
-            <div class="bg-white border border-[#c3c6d1] p-gutter rounded-xl shadow-sm flex flex-col justify-between">
-                <span class="material-symbols-outlined text-[28px] text-[#43474f] opacity-80" style="font-variation-settings:'FILL' 1;">schedule</span>
-                <div class="mt-3">
-                    <p class="text-2xl font-bold text-[#001e40] tracking-tight">{{ $avgTurnaround > 0 ? $avgTurnaround.'d' : '—' }}</p>
-                    <p class="text-[11px] font-bold uppercase tracking-wider text-[#43474f] mt-1">Avg. Approval Time</p>
-                </div>
-            </div>
-        </div>
-
-        {{-- Approver Inbox Table --}}
-        <div class="bg-white border border-[#c3c6d1] rounded-xl shadow-sm relative">
-            <div wire:loading class="absolute inset-x-0 bottom-0 top-[53px] bg-white/60 backdrop-blur-[2px] z-50 flex items-center justify-center">
-                <div class="flex flex-col items-center gap-2">
-                    <div class="w-10 h-10 border-4 border-[#eeedf2] border-t-[#001e40] rounded-full animate-spin"></div>
-                    <span class="text-[12px] font-bold text-[#001e40] uppercase tracking-widest">Updating View...</span>
-                </div>
-            </div>
-
-            {{-- Table Header Bar --}}
-            <div class="p-gutter border-b border-[#c3c6d1] bg-[#f9f9fe] flex flex-wrap items-center justify-between gap-4">
-                <div>
-                    <h3 class="font-bold text-[#001e40] text-lg">Approval Inbox</h3>
-                    <p class="text-[11px] text-[#43474f] mt-0.5">PRs routed to you for final signature — review line items before approving.</p>
-                </div>
-                <div class="flex items-center gap-3">
-                    <div class="relative">
-                        <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[#43474f] text-[18px]">search</span>
-                        <input type="text" wire:model.live.debounce.300ms="search" placeholder="Search PR or unit..." class="pl-9 pr-4 py-2.5 bg-white border border-[#c3c6d1] rounded-lg text-sm focus:ring-2 focus:ring-[#001e40] outline-none transition-all w-56 placeholder-[#43474f]/40"/>
-                    </div>
-                </div>
-            </div>
-
-            {{-- Table --}}
-            <div class="overflow-x-auto custom-scrollbar">
-                <table class="w-full text-left border-collapse">
-                    <thead>
-                        <tr class="bg-[#eeedf2] border-b border-[#c3c6d1]">
-                            <th class="p-table-cell-padding text-[11px] font-bold text-[#001e40] uppercase tracking-wider">PR Number</th>
-                            <th class="p-table-cell-padding text-[11px] font-bold text-[#001e40] uppercase tracking-wider">Date Submitted</th>
-                            <th class="p-table-cell-padding text-[11px] font-bold text-[#001e40] uppercase tracking-wider">Requesting Unit</th>
-                            <th class="p-table-cell-padding text-[11px] font-bold text-[#001e40] uppercase tracking-wider">Total Amount</th>
-                            <th class="p-table-cell-padding text-[11px] font-bold text-[#001e40] uppercase tracking-wider text-right">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody class="text-[13px]">
-                        @forelse($folders as $folder)
-                        {{-- Main PR Row --}}
-                        <tr class="hover:bg-[#f4f3f8] transition-colors border-b border-[#c3c6d1] {{ $expandedDrawerId === $folder->id ? 'bg-[#f4f3f8] border-b-0' : '' }}">
-                            <td class="p-table-cell-padding font-bold text-[#001e40]">{{ $folder->pr_number ?? '—' }}</td>
-                            <td class="p-table-cell-padding text-[#43474f]">{{ $folder->created_at->format('M d, Y') }}</td>
-                            <td class="p-table-cell-padding text-[#1a1c1f]">
-                                {{ $folder->requesting_unit ?? $folder->overall_purpose ?? '—' }}
-                            </td>
-                            <td class="p-table-cell-padding font-bold text-[#001e40]">
-                                @php $totalAmt = $folder->prItems->sum('estimated_total_cost'); @endphp
-                                ₱{{ number_format($totalAmt, 2) }}
-                            </td>
-                            <td class="p-table-cell-padding text-right">
-                                <div class="flex justify-end items-center gap-2">
-                                    <button
-                                        wire:click="toggleDrawer('{{ $folder->id }}')"
-                                        class="px-3 py-1.5 bg-[#001e40] text-white text-[11px] font-bold rounded-lg hover:bg-[#001e40]/90 transition-all flex items-center gap-1.5"
-                                    >
-                                        <span class="material-symbols-outlined text-[14px]">{{ $expandedDrawerId === $folder->id ? 'keyboard_arrow_up' : 'rate_review' }}</span>
-                                        {{ $expandedDrawerId === $folder->id ? 'Collapse' : 'Review' }}
-                                    </button>
-                                    <button
-                                        wire:click="approvePr('{{ $folder->id }}')"
-                                        wire:confirm="Approve this PR and lock it for COA auditing?"
-                                        class="p-1.5 bg-green-50 text-green-700 border border-green-200 rounded-lg hover:bg-green-100 transition-all material-symbols-outlined text-[18px]"
-                                        title="Quick Approve"
-                                        style="font-variation-settings:'FILL' 1;"
-                                    >done_all</button>
-                                    <button
-                                        wire:click="viewHistory('{{ $folder->id }}')"
-                                        class="p-1.5 bg-[#f4f3f8] text-[#43474f] border border-[#c3c6d1] rounded-lg hover:bg-[#eeedf2] transition-all material-symbols-outlined text-[18px]"
-                                        title="Audit Trail"
-                                    >history</button>
-                                </div>
-                            </td>
-                        </tr>
-
-                        {{-- Expandable Drawer Row --}}
-                        @if($expandedDrawerId === $folder->id)
-                        <tr class="bg-[#f9f9fe] border-b border-[#c3c6d1] border-l-4 border-l-[#001e40]">
-                            <td colspan="5" class="px-8 py-6">
-                                <div class="flex flex-col lg:flex-row gap-8">
-
-                                    {{-- Line Items Section --}}
-                                    <div class="flex-1 space-y-4">
-                                        <div class="flex items-center justify-between border-b border-[#c3c6d1] pb-3">
-                                            <h4 class="text-base font-bold text-[#001e40] flex items-center gap-2">
-                                                <span class="material-symbols-outlined text-[20px]">receipt_long</span>
-                                                Line Items Review
-                                            </h4>
-                                            {{-- PDF Preview Link --}}
-                                            <button
-                                                wire:click="generateAndViewPdf('{{ $folder->pr_number }}')"
-                                                class="inline-flex items-center gap-1.5 text-[11px] bg-[#001e40]/8 text-[#001e40] hover:bg-[#001e40]/15 px-3 py-1.5 rounded-lg font-bold transition-all border border-[#001e40]/10"
-                                            >
-                                                <span class="material-symbols-outlined text-[14px]" style="font-variation-settings:'FILL' 1;">picture_as_pdf</span>
-                                                View Official Form
-                                            </button>
-                                        </div>
-
-                                        <table class="w-full text-sm">
-                                            <thead class="text-[#43474f] border-b border-[#c3c6d1]">
-                                                <tr>
-                                                    <th class="py-2 text-left text-[11px] font-bold uppercase tracking-wider ">Item Description</th>
-                                                    <th class="py-2 text-center text-[11px] font-bold uppercase tracking-wider">Qty</th>
-                                                    <th class="py-2 text-right text-[11px] font-bold uppercase tracking-wider">Unit Cost</th>
-                                                    <th class="py-2 text-right text-[11px] font-bold uppercase tracking-wider">Subtotal</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody class="divide-y divide-[#eeedf2]">
-                                                @forelse($folder->prItems as $item)
-                                                <tr >
-                                                    <td class="py-2.5 text-[#1a1c1f] max-w-[350px] whitespace-normal break-words">
-                                                        {{ $item->item_description_override ?? $item->cobItem?->full_particulars ?? '—' }}
-                                                    </td>
-                                                    <td class="py-2.5 text-center text-[#1a1c1f]">{{ $item->total_qty }}</td>
-                                                    <td class="py-2.5 text-right text-[#1a1c1f]">₱{{ number_format($item->estimated_unit_cost, 2) }}</td>
-                                                    <td class="py-2.5 text-right font-bold text-[#001e40]">₱{{ number_format($item->estimated_total_cost, 2) }}</td>
-                                                </tr>
-                                                @empty
-                                                <tr><td colspan="4" class="py-6 text-center text-[11px] text-[#43474f]/60">No line items found.</td></tr>
-                                                @endforelse
-                                            </tbody>
-                                            <tfoot class="border-t-2 border-[#001e40]/20">
-                                                <tr>
-                                                    <td colspan="3" class="py-3 text-right text-[12px] font-bold text-[#43474f] uppercase tracking-wider">Total PR Amount:</td>
-                                                    <td class="py-3 text-right text-base font-bold text-[#001e40]">₱{{ number_format($folder->prItems->sum('estimated_total_cost'), 2) }}</td>
-                                                </tr>
-                                            </tfoot>
-                                        </table>
-
-                                        {{-- Purpose / Justification --}}
-                                        @if($folder->overall_purpose || $folder->project_title)
-                                        <div class="p-4 bg-[#eeedf2]/60 rounded-xl border border-[#c3c6d1]">
-                                            <p class="text-[10px] font-bold text-[#43474f] uppercase tracking-wider">Purpose / Justification</p>
-                                            <p class="text-sm text-[#1a1c1f] mt-1 italic leading-relaxed">{{ $folder->overall_purpose ?? $folder->project_title }}</p>
-                                        </div>
-                                        @endif
-
-                                        {{-- Inline Revision Overlay --}}
-                                        @if($inlineRevisionFolderId === $folder->id)
-                                        <div class="mt-4 p-5 bg-red-50 border border-red-200 rounded-xl space-y-3 animate-in fade-in duration-200">
-                                            <p class="text-[11px] font-bold text-[#ba1a1a] uppercase tracking-wider flex items-center gap-1.5">
-                                                <span class="material-symbols-outlined text-[16px]">edit_note</span>
-                                                Corrective Feedback / Revision Remarks
-                                            </p>
-                                            <textarea
-                                                wire:model="inlineRevisionRemarks"
-                                                placeholder="Describe what needs to be corrected. The PR will be returned to DRAFT and the compiler will be notified..."
-                                                class="w-full px-4 py-3 bg-white border border-red-200 rounded-lg text-sm focus:ring-2 focus:ring-[#ba1a1a]/40 outline-none transition-all resize-none min-h-[100px] text-[#1a1c1f]"
-                                                autofocus
-                                            ></textarea>
-                                            @error('inlineRevisionRemarks')
-                                                <p class="text-[11px] text-[#ba1a1a] font-bold">{{ $message }}</p>
-                                            @enderror
-                                            <div class="flex gap-2 justify-end">
-                                                <button wire:click="cancelInlineRevision" class="px-4 py-2 text-[11px] font-bold text-[#43474f] hover:bg-red-100 rounded-lg transition-all">Cancel</button>
-                                                <button wire:click="submitInlineRevision" class="px-4 py-2 text-[11px] font-bold bg-[#ba1a1a] text-white rounded-lg hover:bg-[#ba1a1a]/90 transition-all flex items-center gap-1.5">
-                                                    <span class="material-symbols-outlined text-[14px]">assignment_return</span>
-                                                    Return with Edits
-                                                </button>
-                                            </div>
-                                        </div>
-                                        @endif
-                                    </div>
-
-                                    {{-- Approval Action Panel --}}
-                                    <div class="w-full lg:w-60 flex flex-col gap-2.5 justify-start pt-1">
-                                        <p class="text-[10px] font-bold text-[#43474f] uppercase tracking-wider mb-1">Your Decision</p>
-
-                                        {{-- Approve --}}
-                                        <button
-                                            wire:click="approvePr('{{ $folder->id }}')"
-                                            wire:confirm="Approve this PR and permanently lock it for COA auditing?"
-                                            class="w-full py-3 bg-[#001e40] text-white font-bold text-sm rounded-xl flex items-center justify-center gap-2 hover:bg-[#001e40]/90 transition-all shadow-sm"
-                                        >
-                                            <span class="material-symbols-outlined" style="font-variation-settings:'FILL' 1;">check_circle</span> Approve
-                                        </button>
-
-                                        {{-- Recommend Revision --}}
-                                        @if($inlineRevisionFolderId !== $folder->id)
-                                        <button
-                                            wire:click="startInlineRevision('{{ $folder->id }}')"
-                                            class="w-full py-3 border-2 border-[#001e40] text-[#001e40] font-bold text-sm rounded-xl flex items-center justify-center gap-2 hover:bg-[#001e40]/5 transition-all"
-                                        >
-                                            <span class="material-symbols-outlined">edit_note</span> Recommend Revision
-                                        </button>
-                                        @else
-                                        <button
-                                            wire:click="cancelInlineRevision"
-                                            class="w-full py-3 border-2 border-[#001e40]/30 text-[#43474f] font-bold text-sm rounded-xl flex items-center justify-center gap-2 hover:bg-[#eeedf2] transition-all"
-                                        >
-                                            <span class="material-symbols-outlined">close</span> Cancel Revision
-                                        </button>
-                                        @endif
-
-                                        {{-- Disapprove (full rejection modal) --}}
-                                        <button
-                                            wire:click="startRejection('{{ $folder->id }}')"
-                                            class="w-full py-3 border-2 border-[#ba1a1a] text-[#ba1a1a] font-bold text-sm rounded-xl flex items-center justify-center gap-2 hover:bg-red-50 transition-all"
-                                        >
-                                            <span class="material-symbols-outlined">cancel</span> Disapprove
-                                        </button>
-
-                                        <div class="h-px bg-[#eeedf2] my-1"></div>
-
-                                        {{-- View Audit Trail --}}
-                                        <button
-                                            wire:click="viewHistory('{{ $folder->id }}')"
-                                            class="w-full py-2 text-[#43474f] text-[11px] font-bold hover:text-[#001e40] hover:underline flex items-center justify-center gap-1.5 transition-all"
-                                        >
-                                            <span class="material-symbols-outlined text-[14px]">history</span> View Audit Trail
-                                        </button>
-
-                                        {{-- Collapse --}}
-                                        <button
-                                            wire:click="toggleDrawer('{{ $folder->id }}')"
-                                            class="w-full py-2 text-[#43474f] text-[11px] font-bold hover:underline flex items-center justify-center gap-1.5 transition-all"
-                                        >
-                                            <span class="material-symbols-outlined text-[14px]">keyboard_arrow_up</span> Collapse View
-                                        </button>
-                                    </div>
-                                </div>
-                            </td>
-                        </tr>
-                        @endif
-
-                        @empty
-                        <tr>
-                            <td colspan="5" class="px-6 py-20 text-center">
-                                <div class="flex flex-col items-center gap-3 text-[#43474f]">
-                                    <span class="material-symbols-outlined text-[56px] text-[#c3c6d1]">inbox</span>
-                                    @if($search)
-                                        <p class="font-bold text-[#001e40] text-lg">No Results Found</p>
-                                        <p class="text-[13px] text-[#43474f] max-w-xs">No PRs matching "{{ $search }}" in your approval queue.</p>
-                                    @else
-                                        <p class="font-bold text-[#001e40] text-lg">Inbox is Clear</p>
-                                        <p class="text-[13px] text-[#43474f] max-w-xs">There are no Purchase Requests currently awaiting your approval signature.</p>
-                                    @endif
-                                </div>
-                            </td>
-                        </tr>
-                        @endforelse
-                    </tbody>
-                </table>
-            </div>
-
-            @if($folders->hasPages())
-                <div class="p-gutter border-t border-[#c3c6d1] bg-[#f9f9fe]">
-                    {{ $folders->links() }}
-                </div>
-            @elseif($folders->count() > 0)
-                <div class="p-gutter border-t border-[#c3c6d1] flex items-center justify-between bg-[#f9f9fe]">
-                    <p class="text-[12px] font-bold text-[#43474f] uppercase tracking-wider">Showing {{ $folders->count() }} of {{ $folders->total() }} Pending Requests</p>
-                </div>
-            @endif
-        </div>
-
-        {{-- Approver Insight Cards --}}
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-gutter">
-            {{-- Compliance Card --}}
-            <div class="bg-white p-8 border border-[#c3c6d1] rounded-2xl shadow-sm flex gap-6 items-center">
-                <div class="w-20 h-20 rounded-2xl bg-[#d5e3ff]/40 border border-[#001e40]/10 flex items-center justify-center flex-shrink-0">
-                    <span class="material-symbols-outlined text-[40px] text-[#001e40]" style="font-variation-settings:'FILL' 1;">verified_user</span>
-                </div>
-                <div class="flex-1">
-                    <h4 class="text-lg font-bold text-[#001e40]">Regional Compliance Check</h4>
-                    <p class="text-sm text-[#43474f] mt-2 leading-relaxed">
-                        All pending PRs have passed the automated budget availability check. Final signatures are required for regional disbursement authority under <strong>Circular 2026-015</strong>.
-                    </p>
-                    <a href="#" class="inline-block mt-3 text-[#001e40] text-[11px] font-bold hover:underline">View Compliance Logs →</a>
-                </div>
-            </div>
-            {{-- Approver Tip Card --}}
-            <div class="bg-[#d5e3ff]/20 p-8 border border-[#001e40]/10 rounded-2xl flex flex-col justify-center relative overflow-hidden group">
-                <span class="material-symbols-outlined absolute -right-4 -bottom-4 text-[120px] text-[#001e40]/5 group-hover:scale-110 transition-transform duration-700" style="font-variation-settings:'FILL' 1;">tips_and_updates</span>
-                <div class="relative z-10">
-                    <div class="flex items-center gap-2 mb-3">
-                        <span class="material-symbols-outlined text-[#001e40]" style="font-variation-settings:'FILL' 1;">info</span>
-                        <h4 class="text-base font-bold text-[#001e40]">Approver Tip</h4>
-                    </div>
-                    <p class="text-sm text-[#1a1c1f] leading-relaxed">
-                        Click <strong>Review</strong> to expand the line items drawer and verify the Spatie PDF output before signing. Use <strong>Recommend Revision</strong> to log corrective feedback inline — remarks are permanently recorded to the audit trail.
-                    </p>
-                </div>
-            </div>
-        </div>
-
-        {{-- ═══════════════════════════════════════════════════════════════ --}}
-        {{-- RECOMMENDER / COMPILER / ADMIN VIEW (non-approver)             --}}
-        {{-- ═══════════════════════════════════════════════════════════════ --}}
-        @else
-
         {{-- KPI Bento Grid --}}
         <div class="grid grid-cols-2 md:grid-cols-4 gap-gutter">
             @php $kpis = [
                 ['label' => 'Active Requests',    'value' => $totalActive > 0 ? $totalActive : null, 'sub' => 'Ongoing tracking',    'icon' => 'description',     'icon_bg' => 'bg-[#001e40]/8',   'icon_color' => 'text-[#001e40]', 'trend' => 'up',   'trend_color' => 'text-green-700'],
                 ['label' => 'Total PO Value',     'value' => $totalValue > 0 ? '₱'.number_format($totalValue/1000000, 2).'M' : null, 'sub' => 'Awarded & Released', 'icon' => 'account_balance_wallet', 'icon_bg' => 'bg-[#d5e3ff]/60', 'icon_color' => 'text-[#1f477b]', 'trend' => null,   'trend_color' => ''],
                 ['label' => 'Pending Action',   'value' => $totalPending > 0 ? $totalPending : null, 'sub' => 'Draft / Unawarded',   'icon' => 'pending_actions',  'icon_bg' => 'bg-[#ffdad6]/60', 'icon_color' => 'text-[#ba1a1a]', 'trend' => 'alert','trend_color' => 'text-[#ba1a1a]'],
-                ['label' => 'Avg Turnaround',     'value' => $avgTurnaround > 0 ? $avgTurnaround.'d': null, 'sub' => 'Delivery time',    'icon' => 'timer',            'icon_bg' => 'bg-green-50',      'icon_color' => 'text-green-700', 'trend' => 'check', 'trend_color' => 'text-green-700'],
+                ['label' => 'Avg Turnaround',     'value' => null, 'sub' => 'Delivery time',    'icon' => 'timer',            'icon_bg' => 'bg-green-50',      'icon_color' => 'text-green-700', 'trend' => 'check', 'trend_color' => 'text-green-700'],
             ] @endphp
 
             @foreach($kpis as $kpi)
@@ -852,7 +590,7 @@ new #[Layout('layouts.app')] class extends Component
             </div>
 
             <div class="p-gutter border-b border-[#c3c6d1] bg-[#f9f9fe] flex flex-wrap items-center justify-between gap-4">
-                <h3 class="font-bold text-[#001e40] text-lg">Purchase Request Tracker</h3>
+                <h3 class="font-bold text-[#001e40] text-lg">Office PR Registry</h3>
                 <div class="flex items-center gap-3">
                     <div class="relative">
                         <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[#43474f] text-[18px]">search</span>
@@ -866,6 +604,7 @@ new #[Layout('layouts.app')] class extends Component
                 <table class="w-full text-left border-collapse">
                     <thead>
                         <tr class="bg-[#eeedf2] border-b border-[#c3c6d1]">
+                            <th class="p-table-cell-padding text-[11px] font-bold text-[#001e40] uppercase tracking-wider">Tracking Number</th>
                             <th class="p-table-cell-padding text-[11px] font-bold text-[#001e40] uppercase tracking-wider">PR Number</th>
                             <th class="p-table-cell-padding text-[11px] font-bold text-[#001e40] uppercase tracking-wider">Date Requested</th>
                             <th class="p-table-cell-padding text-[11px] font-bold text-[#001e40] uppercase tracking-wider">Supplier Name</th>
@@ -877,6 +616,7 @@ new #[Layout('layouts.app')] class extends Component
                     <tbody class="divide-y divide-[#c3c6d1] text-[13px]">
                         @forelse($folders as $folder)
                         <tr class="hover:bg-[#f4f3f8] transition-colors">
+                            <td class="p-table-cell-padding font-bold text-[#43474f] font-mono text-xs">{{ $folder->tracking_number }}</td>
                             <td class="p-table-cell-padding font-bold text-[#001e40]">{{ $folder->pr_number ?? '—' }}</td>
                             <td class="p-table-cell-padding text-[#1a1c1f]">{{ $folder->created_at->format('M d, Y') }}</td>
                             <td class="p-table-cell-padding text-[#1a1c1f]">{{ $folder->purchaseOrder?->supplier?->name ?? '—' }}</td>
@@ -884,6 +624,7 @@ new #[Layout('layouts.app')] class extends Component
                                 @php
                                     $statusColors = [
                                         'DRAFT' => 'bg-[#eeedf2] text-[#43474f]',
+                                        'SUBMITTED_TO_GSU' => 'bg-[#e0f7fa] text-[#006064] border border-[#00acc1]/20',
                                         'ROUTING' => 'bg-[#fff9c4] text-[#f57f17] border border-[#fbc02d]/30',
                                         'APPROVED' => 'bg-green-50 text-green-800 border border-green-200',
                                         'PR_PRINTED' => 'bg-[#ffdbca] text-[#341100]',
@@ -932,7 +673,7 @@ new #[Layout('layouts.app')] class extends Component
                                                  @click="open = false">
                                                 <div class="p-1.5 space-y-1 text-left">
                                                     {{-- View PDF (Always Available) --}}
-                                                    <button wire:click="generateAndViewPdf('{{ $folder->pr_number }}')" wire:loading.attr="disabled" class="flex items-center gap-2.5 w-full px-3 py-2 text-xs font-bold text-[#43474f] hover:bg-[#f4f3f8] hover:text-[#001e40] rounded-lg transition-all relative whitespace-nowrap">
+                                                    <button wire:click="generateAndViewPdf('{{ $folder->id }}')" wire:loading.attr="disabled" class="flex items-center gap-2.5 w-full px-3 py-2 text-xs font-bold text-[#43474f] hover:bg-[#f4f3f8] hover:text-[#001e40] rounded-lg transition-all relative whitespace-nowrap">
                                                         <span class="material-symbols-outlined text-[18px]">visibility</span>
                                                         <span>View PDF Form</span>
                                                     </button>
@@ -943,7 +684,16 @@ new #[Layout('layouts.app')] class extends Component
                                                         <span>View Audit Trail</span>
                                                     </button>
 
-                                                    @if($folder->status === 'DRAFT' && !auth()->user()->hasAnyRole(['MSD Head', 'Admin Head']))
+                                                    @if(!$folder->pr_number && in_array($folder->status, ['SUBMITTED_TO_GSU', 'ROUTING']))
+                                                         <div class="h-px bg-[#eeedf2] my-1"></div>
+                                                         {{-- Cancel Submission --}}
+                                                         <button wire:click="cancelSubmission('{{ $folder->id }}')" class="flex items-center gap-2.5 w-full px-3 py-2 text-xs font-bold text-[#ba1a1a] hover:bg-red-50 rounded-lg transition-all whitespace-nowrap">
+                                                             <span class="material-symbols-outlined text-[18px]">cancel</span>
+                                                             <span>Cancel Submission</span>
+                                                         </button>
+                                                     @endif
+
+                                                    @if($folder->status === 'DRAFT')
                                                         <div class="h-px bg-[#eeedf2] my-1"></div>
                                                         {{-- Route for Signature --}}
                                                         <button wire:click="submitForApproval('{{ $folder->id }}')" class="flex items-center gap-2.5 w-full px-3 py-2 text-xs font-bold text-[#1f477b] hover:bg-blue-50 rounded-lg transition-all whitespace-nowrap">
@@ -963,21 +713,6 @@ new #[Layout('layouts.app')] class extends Component
                                                             <span>Delete Draft</span>
                                                         </button>
                                                     @endif
-
-                                                    @if($folder->status === 'ROUTING' && auth()->user()->hasAnyRole(['Admin', 'MSD Head', 'Admin Head']))
-                                                        <div class="h-px bg-[#eeedf2] my-1"></div>
-                                                        {{-- Approve --}}
-                                                        <button wire:click="approvePr('{{ $folder->id }}')" class="flex items-center gap-2.5 w-full px-3 py-2 text-xs font-bold text-green-700 hover:bg-green-50 rounded-lg transition-all whitespace-nowrap">
-                                                            <span class="material-symbols-outlined text-[18px]">check_circle</span>
-                                                            <span>{{ $folder->recommended_by_id === auth()->user()->employee_id && $folder->approved_by_id !== auth()->user()->employee_id ? 'Recommend PR' : 'Approve & Lock' }}</span>
-                                                        </button>
-
-                                                        {{-- Return with Edits --}}
-                                                        <button wire:click="startRejection('{{ $folder->id }}')" class="flex items-center gap-2.5 w-full px-3 py-2 text-xs font-bold text-[#ba1a1a] hover:bg-red-50 rounded-lg transition-all whitespace-nowrap">
-                                                            <span class="material-symbols-outlined text-[18px]">assignment_return</span>
-                                                            <span>Return with Edits</span>
-                                                        </button>
-                                                    @endif
                                                 </div>
                                             </div>
                                         </template>
@@ -986,7 +721,7 @@ new #[Layout('layouts.app')] class extends Component
                         </tr>
                         @empty
                         <tr>
-                            <td colspan="6" class="px-6 py-20 text-center">
+                            <td colspan="7" class="px-6 py-20 text-center">
                                 <div class="flex flex-col items-center gap-3 text-[#43474f]">
                                     <span class="material-symbols-outlined text-[56px] text-[#c3c6d1]">receipt_long</span>
                                     @if($search)
@@ -995,7 +730,7 @@ new #[Layout('layouts.app')] class extends Component
                                     @else
                                         <p class="font-bold text-[#001e40] text-lg">No Purchase Requests Found</p>
                                         <p class="text-[13px] text-[#43474f] max-w-xs">There are no procurement requests yet. Create the first one to start tracking your purchasing pipeline.</p>
-                                        <x-primary-button icon="add" class="mt-2" x-on:click="isCreatingPr = true">Create First PR</x-primary-button>
+                                        <x-primary-button icon="add" class="mt-2" x-on:click="$dispatch('open-new-pr')">Create First PR</x-primary-button>
                                     @endif
                                 </div>
                             </td>
@@ -1011,10 +746,52 @@ new #[Layout('layouts.app')] class extends Component
                 </div>
             @elseif($folders->count() > 0)
                 <div class="p-gutter border-t border-[#c3c6d1] flex items-center justify-between bg-[#f9f9fe]">
-                    <p class="text-[12px] font-bold text-[#43474f] uppercase tracking-wider">Showing 1 to {{ $folders->count() }} of {{ $folders->total() }} PRs</p>
+                                <td class="p-table-cell-padding text-[#1a1c1f]">
+                                    {{ $folder->requestedBy?->fullname ?? '—' }}
+                                </td>
+                                <td class="p-table-cell-padding font-bold text-[#001e40]">
+                                    ₱{{ number_format($folder->prItems->sum('estimated_total_cost'), 2) }}
+                                </td>
+                                <td class="p-table-cell-padding text-right">
+                                    <div class="flex justify-end items-center gap-2">
+                                        <button
+                                            wire:click="startTriageAccept('{{ $folder->id }}')"
+                                            class="px-3 py-1.5 bg-[#001e40] text-white text-[11px] font-bold rounded-lg hover:bg-[#001e40]/90 transition-all flex items-center gap-1.5"
+                                        >
+                                            <span class="material-symbols-outlined text-[14px]">done</span>
+                                            Accept & Route
+                                        </button>
+                                        <button
+                                            wire:click="startTriageReject('{{ $folder->id }}')"
+                                            class="px-3 py-1.5 border border-[#ba1a1a] text-[#ba1a1a] text-[11px] font-bold rounded-lg hover:bg-red-50 transition-all flex items-center gap-1.5"
+                                        >
+                                            <span class="material-symbols-outlined text-[14px]">assignment_return</span>
+                                            Return
+                                        </button>
+                                        <button
+                                            wire:click="viewHistory('{{ $folder->id }}')"
+                                            class="p-1.5 bg-[#f4f3f8] text-[#43474f] border border-[#c3c6d1] rounded-lg hover:bg-[#eeedf2] transition-all material-symbols-outlined text-[18px]"
+                                            title="Audit Trail"
+                                        >history</button>
+                                    </div>
+                                </td>
+                            </tr>
+                            @empty
+                            <tr>
+                                <td colspan="6" class="px-6 py-20 text-center">
+                                    <div class="flex flex-col items-center gap-3 text-[#43474f]">
+                                        <span class="material-symbols-outlined text-[56px] text-[#c3c6d1]">inbox</span>
+                                        <p class="font-bold text-[#001e40] text-lg">Triage is Clear</p>
+                                        <p class="text-[13px] text-[#43474f] max-w-xs">There are no pending ad-hoc Purchase Requests currently awaiting GSU triage.</p>
+                                    </div>
+                                </td>
+                            </tr>
+                            @endforelse
+                        </tbody>
+                    </table>
                 </div>
-            @endif
-        </div>
+            </div>
+        @endif
 
         {{-- Insight Cards (Hidden on Empty State) --}}
         @if($totalActive > 0 || $totalPending > 0)
@@ -1046,20 +823,20 @@ new #[Layout('layouts.app')] class extends Component
         @endif
         </div>
 
-        @endif {{-- end @if($isApprover) ... @else --}}
-
-        {{-- PR Compiler Workspace --}}
-        <div x-show="isCreatingPr"
-             x-cloak
-             x-transition:enter="transition ease-out duration-300"
-             x-transition:enter-start="opacity-0 translate-y-4"
-             x-transition:enter-end="opacity-100 translate-y-0"
-             x-transition:leave="transition ease-in duration-200"
-             x-transition:leave-start="opacity-100 translate-y-0"
-             x-transition:leave-end="opacity-0 -translate-y-4"
-             class="space-y-5">
-             <livewire:procurement.pr-compiler :folder-id="$editingFolderId" :key="$editingFolderId ?? 'new-pr'" />
-        </div>
+        @if($isCreatingPr)
+            {{-- PR Compiler Workspace --}}
+            <div x-show="isCreatingPr"
+                 x-cloak
+                 x-transition:enter="transition ease-out duration-300"
+                 x-transition:enter-start="opacity-0 translate-y-4"
+                 x-transition:enter-end="opacity-100 translate-y-0"
+                 x-transition:leave="transition ease-in duration-200"
+                 x-transition:leave-start="opacity-100 translate-y-0"
+                 x-transition:leave-end="opacity-0 -translate-y-4"
+                 class="space-y-5">
+                 <livewire:procurement.end-user-portal :folder-id="$editingFolderId" :key="$editingFolderId ?? 'new-pr'" />
+            </div>
+        @endif
 
         {{-- Delete Confirmation Modal --}}
         @if($confirmingDeleteId)
@@ -1112,6 +889,8 @@ new #[Layout('layouts.app')] class extends Component
             </div>
         @endif
 
+
+
         {{-- Audit Trail History Modal --}}
         @if($viewingHistoryFolderId)
             @php
@@ -1122,7 +901,7 @@ new #[Layout('layouts.app')] class extends Component
                     <div class="flex justify-between items-center border-b border-[#eeedf2] pb-3">
                         <h4 class="text-base font-bold text-[#001e40] flex items-center gap-2">
                             <span class="material-symbols-outlined text-[22px]">history</span>
-                            Audit Trail: {{ $historyFolder?->pr_number ?? 'PR History' }}
+                            Audit Trail: {{ $historyFolder?->pr_number ?? $historyFolder?->tracking_number }}
                         </h4>
                         <button wire:click="closeHistory" class="p-1 hover:bg-[#eeedf2] rounded-lg">
                             <span class="material-symbols-outlined text-[18px]">close</span>

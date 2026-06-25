@@ -4,6 +4,7 @@ use App\Models\BudgetYear;
 use App\Models\CobVersion;
 use Livewire\Volt\Component;
 use Livewire\Attributes\Layout;
+use Livewire\Attributes\On;
 use Livewire\WithFileUploads;
 
 new #[Layout('layouts.app')] class extends Component
@@ -30,6 +31,23 @@ new #[Layout('layouts.app')] class extends Component
     public string $revisionVersionId = '';
     public int $importCount = 0;
     public string $importError = '';
+
+    // APP Modal
+    public bool $showAppModal = false;
+    public ?int $appModalYear = null;
+
+    #[On('app-status-updated')]
+    public function refreshRegistry(): void
+    {
+        // Triggers parent component re-render
+    }
+
+    #[On('open-app-modal')]
+    public function openAppModal(int $year): void
+    {
+        $this->appModalYear = $year;
+        $this->showAppModal = true;
+    }
 
     public function mount(): void
     {
@@ -446,6 +464,53 @@ new #[Layout('layouts.app')] class extends Component
                             <p class="leading-relaxed"><span class="font-bold text-[#001e40] uppercase text-[10px] mr-1">Justification:</span>{{ $ver->remarks }}</p>
                         </div>
                     @endif
+
+                    @if($ver->status === 'APPROVED' || $ver->is_active)
+                        @php
+                            $appHeader = \App\Models\AppHeader::where('fiscal_year', $year->fiscal_year)->first();
+                            $appLineItemsCount = $appHeader ? $appHeader->lineItems()->count() : 0;
+                            $appTotalBudget = $appHeader ? $appHeader->lineItems()->sum('approved_budget') : 0;
+                        @endphp
+                        <div class="mt-3 flex flex-wrap items-center gap-3 bg-[#f9f9fe] border border-[#c3c6d1]/50 p-3 rounded-xl max-w-3xl">
+                            <div class="flex items-center gap-2">
+                                <span class="material-symbols-outlined text-[#001e40] text-[18px]">gavel</span>
+                                <span class="text-xs font-bold text-[#001e40]">APP Status:</span>
+                            </div>
+                            
+                            @if($appHeader && $appHeader->is_approved)
+                                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 bg-green-50 text-green-700 border border-green-200 text-[10px] font-bold uppercase rounded-full shadow-3xs">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-green-600 animate-pulse"></span>
+                                    Active ({{ number_format($appLineItemsCount) }} lines · ₱{{ number_format($appTotalBudget, 2) }})
+                                </span>
+                            @elseif($appHeader)
+                                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 bg-[#fff8e1] text-[#f57f17] border border-[#ffe082] text-[10px] font-bold uppercase rounded-full shadow-3xs">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-[#f57f17]"></span>
+                                    Ingested (Phase 1, Unapproved)
+                                </span>
+                            @else
+                                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 bg-red-50 text-[#ba1a1a] border border-red-200 text-[10px] font-bold uppercase rounded-full shadow-3xs">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-[#ba1a1a]"></span>
+                                    Not Uploaded
+                                </span>
+                            @endif
+
+                            <div class="ml-auto flex items-center gap-2">
+                                @if($appHeader)
+                                    <a href="{{ route('procurement.app.items', $appHeader->id) }}" wire:navigate class="border border-[#c3c6d1] text-[#001e40] hover:bg-[#001e40]/5 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all">
+                                        <span class="material-symbols-outlined text-[16px]">list_alt</span>
+                                        View APP Items
+                                    </a>
+                                @endif
+
+                                @hasanyrole('Admin Head|Admin')
+                                    <button type="button" @click="$dispatch('open-app-modal', { year: {{ $year->fiscal_year }} })" class="bg-[#001e40] text-white hover:bg-[#003366] px-3.5 py-1.5 rounded-lg text-xs font-bold shadow-sm flex items-center gap-1.5 transition-all">
+                                        <span class="material-symbols-outlined text-[16px]">publish</span>
+                                        APP Upload & Activation
+                                    </button>
+                                @endhasanyrole
+                            </div>
+                        </div>
+                    @endif
                 </div>
 
                 {{-- Upload Action --}}
@@ -505,6 +570,31 @@ new #[Layout('layouts.app')] class extends Component
             @endforeach
         </div>
         @endif
+
+        <!-- ========================================== -->
+        <!--   APP UPLOAD & ACTIVATION GATEWAY  -->
+        <!-- ========================================== -->
+        @hasanyrole('Admin Head|Admin')
+            @php
+                $approvedCob = $year->versions->where('status', 'APPROVED')->first();
+            @endphp
+            @if(!$approvedCob)
+                <section class="mt-6 border-t border-dashed border-[#c3c6d1] p-6 w-full">
+                    <!-- Locked State Placeholder: Informational Banner matching MD3 Design Tokens -->
+                    <div class="bg-[#eeedf2]/40 p-5 rounded-2xl border border-dashed border-[#c3c6d1] flex items-center gap-4 text-[#43474f]">
+                        <div class="w-12 h-12 rounded-full bg-[#f4f3f8] flex items-center justify-center text-[#001e40] flex-shrink-0">
+                            <span class="material-symbols-outlined text-2xl">lock_clock</span>
+                        </div>
+                        <div>
+                            <h4 class="text-xs font-bold uppercase tracking-wider text-[#001e40]">APP Upload & Activation Locked</h4>
+                            <p class="text-xs mt-0.5 text-[#43474f]/80 leading-relaxed">
+                                The APP Upload & Activation gateway for fiscal year <span class="font-bold text-[#001e40]">{{ $year->fiscal_year }}</span> will unlock automatically once the corresponding Corporate Operating Budget (COB) setup is formally finalized and marked as <span class="text-green-700 font-bold">APPROVED</span> by management.
+                            </p>
+                        </div>
+                    </div>
+                </section>
+            @endif
+        @endhasanyrole
     </div>
     @empty
     <div class="bg-white border border-[#c3c6d1] rounded-xl shadow-sm py-20 text-center flex flex-col items-center gap-4">
@@ -749,6 +839,33 @@ new #[Layout('layouts.app')] class extends Component
                         class="px-8 py-3 bg-[#001e40] text-white font-bold rounded-xl hover:bg-[#003366] transition-all shadow-lg active:scale-95">
                     Continue
                 </button>
+            </div>
+        </div>
+    </div>
+    @endteleport
+    @endif
+
+    {{-- Modal: APP Upload & Activation --}}
+    @if($showAppModal && $appModalYear)
+    @teleport('body')
+    <div class="fixed inset-0 z-[100] flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-[#001e40]/40 backdrop-blur-sm" wire:click="$set('showAppModal', false)"></div>
+        <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-4xl p-6 z-10 max-h-[90vh] overflow-y-auto custom-scrollbar">
+            <div class="flex justify-between items-start mb-4 pb-4 border-b border-[#eeedf2]">
+                <div>
+                    <h3 class="text-lg font-bold text-[#001e40] flex items-center gap-2">
+                        <span class="material-symbols-outlined text-[24px]">gavel</span>
+                        APP Upload & Activation (FY {{ $appModalYear }})
+                    </h3>
+                    <p class="text-xs text-[#43474f] mt-1">Upload CSV layout files, final signed PDF, and activate the procurement portal for this fiscal year.</p>
+                </div>
+                <button wire:click="$set('showAppModal', false)" class="p-1.5 rounded-lg hover:bg-[#eeedf2] text-[#43474f] transition-all">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+            
+            <div class="space-y-6">
+                <livewire:procurement.app-manager :fiscal-year="$appModalYear" :is-modal="true" :key="'app-manager-modal-' . $appModalYear" />
             </div>
         </div>
     </div>

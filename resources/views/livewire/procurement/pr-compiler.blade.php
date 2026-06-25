@@ -6,6 +6,8 @@ use App\Models\Office;
 use App\Models\ProcurementFolder;
 use App\Models\PrItem;
 use App\Models\Employee;
+use App\Models\AppHeader;
+use App\Models\AppLineItem;
 use Illuminate\Support\Facades\DB;
 use Livewire\Volt\Component;
 use Livewire\Attributes\Layout;
@@ -22,13 +24,23 @@ new class extends Component
 
     public function mount(?string $folderId = null): void
     {
+        $currentYear = \App\Models\BudgetYear::where('status', 'OPEN')->value('fiscal_year') ?? now()->year;
+        $appGateCleared = \App\Models\AppHeader::where('fiscal_year', $currentYear)
+            ->where('is_approved', true)
+            ->exists();
+
+        if (!$appGateCleared) {
+            $this->redirectRoute('procurement', navigate: true);
+            session()->flash('error', "PR Creation Suspended: The Annual Procurement Plan (APP) for fiscal year {$currentYear} has not been uploaded or approved by the Admin Head.");
+            return;
+        }
+
         $this->resetState($folderId);
     }
 
     public function generateNextPrNumber(): string
     {
-        $sequence  = \App\Models\ProcurementFolder::whereNotNull('pr_number')->count() + 1;
-        return 'PR-' . now()->year . '-' . str_pad($sequence, 5, '0', STR_PAD_LEFT);
+        return \App\Models\ProcurementFolder::generateNextPrNumber();
     }
 
     #[On('open-pr-creation')]
@@ -357,6 +369,16 @@ new class extends Component
                 // Fetch the existing folder
                 $folder = ProcurementFolder::findOrFail($this->folderId);
 
+                // Release old utilized budgets
+                foreach ($folder->prItems as $oldItem) {
+                    if ($oldItem->app_line_item_id) {
+                        $appLineItem = AppLineItem::find($oldItem->app_line_item_id);
+                        if ($appLineItem) {
+                            $appLineItem->decrement('utilized_budget', $oldItem->estimated_total_cost);
+                        }
+                    }
+                }
+
                 // Release old allocations
                 CobItemDistribution::whereHas('prItem', function($q) {
                     $q->where('folder_id', $this->folderId);
@@ -409,14 +431,36 @@ new class extends Component
                 $recomQty  = $cobItem?->recom_qty ?? 0;
                 $unitCost  = $recomQty > 0 ? ((float) ($cobItem?->recom_amount ?? 0) / $recomQty) : 0.0;
 
+                $appLineItemId = null;
+                $currentYear = \App\Models\BudgetYear::where('status', 'OPEN')->value('fiscal_year') ?? now()->year;
+                $header = AppHeader::where('fiscal_year', $currentYear)
+                    ->where('is_approved', true)
+                    ->first();
+                if ($header) {
+                    $matchedLine = AppLineItem::where('app_header_id', $header->id)
+                        ->where(function ($q) use ($cobItem) {
+                            $q->where('description', 'like', '%' . $cobItem->full_particulars . '%')
+                              ->orWhere('project_title', 'like', '%' . $cobItem->full_particulars . '%')
+                              ->orWhere('description', 'like', '%' . $cobItem->exp_desc . '%');
+                        })
+                        ->first();
+                    $appLineItemId = $matchedLine?->id;
+                }
+
                 // PrItem boot() will auto-set estimated_total_cost & accountability_type
                 $prItem = PrItem::create([
                     'folder_id'           => $folder->id,
                     'cob_item_id'         => $cobItemId,
+                    'app_line_item_id'    => $appLineItemId,
                     'total_qty'           => $totalQty,
                     'unit_cost'           => $unitCost,
                     'estimated_unit_cost' => $unitCost,
                 ]);
+
+                // Increment budget if matched
+                if ($appLineItemId) {
+                    $matchedLine->increment('utilized_budget', $prItem->estimated_total_cost);
+                }
 
                 // Lock the distributions — link them to the new PrItem
                 CobItemDistribution::whereIn('id', $distGroup->pluck('id'))

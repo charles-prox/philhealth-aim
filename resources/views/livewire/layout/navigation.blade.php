@@ -46,9 +46,36 @@ new class extends Component
             Command Center
         </x-sidebar-link>
 
-        <x-sidebar-link :href="route('procurement')" :active="request()->routeIs('procurement')" icon="shopping_cart">
-            Procurement
-        </x-sidebar-link>
+        @role('Admin')
+            <div class="pt-2 pb-1 px-4" x-show="!sidebarCollapsed">
+                <p class="text-[9px] uppercase tracking-widest text-[#43474f] font-bold">Procurement Views</p>
+            </div>
+            <x-sidebar-link :href="route('procurement.admin')" :active="request()->routeIs('procurement.admin')" icon="admin_panel_settings">
+                GSU Master Desk
+            </x-sidebar-link>
+            <x-sidebar-link :href="route('procurement.office')" :active="request()->routeIs('procurement.office')" icon="account_balance">
+                Office Desk
+            </x-sidebar-link>
+            <x-sidebar-link :href="route('procurement.portal')" :active="request()->routeIs('procurement.portal')" icon="shopping_cart">
+                Custodian Portal
+            </x-sidebar-link>
+        @else
+            @hasanyrole('Procurement Officer')
+                <x-sidebar-link :href="route('procurement.admin')" :active="request()->routeIs('procurement.admin')" icon="shopping_cart">
+                    Procurement Desk
+                </x-sidebar-link>
+            @endhasanyrole
+            @hasanyrole('Office Head')
+                <x-sidebar-link :href="route('procurement.office')" :active="request()->routeIs('procurement.office')" icon="shopping_cart">
+                    Procurement Desk
+                </x-sidebar-link>
+            @endhasanyrole
+            @hasanyrole('Document custodian')
+                <x-sidebar-link :href="route('procurement.portal')" :active="request()->routeIs('procurement.portal')" icon="shopping_cart">
+                    Procurement Portal
+                </x-sidebar-link>
+            @endhasanyrole
+        @endrole
 
 
         @hasanyrole('Admin|Procurement Officer|Inventory Manager')

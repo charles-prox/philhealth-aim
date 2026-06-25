@@ -320,7 +320,7 @@
                                 @endphp
                                 <tr>
                                     <td class="text-center">{{ $index + 1 }}</td>
-                                    <td class="text-center">{{ $item->cobItem->unit ?? 'Unit' }}</td>
+                                    <td class="text-center">{{ $item->unit ?? $item->cobItem->unit ?? 'pcs' }}</td>
                                     <td>{{ $item->item_description_override ?? $item->cobItem->full_particulars ?? '' }}</td>
                                     <td class="text-center">{{ number_format($item->total_qty) }}</td>
                                     <td class="text-right">{{ number_format($item->estimated_unit_cost, 2) }}</td>

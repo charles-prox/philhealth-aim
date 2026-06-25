@@ -14,8 +14,10 @@ class PrItem extends Model
     protected $fillable = [
         'folder_id',
         'cob_item_id',
+        'app_line_item_id',
         'item_description_override',
         'total_qty',
+        'unit',
         'unit_cost',
         'estimated_unit_cost',
         'estimated_total_cost',
@@ -84,6 +86,11 @@ class PrItem extends Model
     public function cobItem(): BelongsTo
     {
         return $this->belongsTo(CobItem::class, 'cob_item_id');
+    }
+
+    public function appLineItem(): BelongsTo
+    {
+        return $this->belongsTo(AppLineItem::class, 'app_line_item_id');
     }
 
     /**

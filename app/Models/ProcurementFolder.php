@@ -84,4 +84,26 @@ class ProcurementFolder extends Model
     {
         return $this->hasMany(ProcurementLog::class, 'procurement_folder_id')->orderBy('created_at', 'desc');
     }
+
+    public static function generateNextPrNumber(): string
+    {
+        $currentYear = now()->year;
+        $prefix = "PR-{$currentYear}-";
+        
+        $highestPr = self::where('pr_number', 'like', $prefix . '%')
+            ->select('pr_number')
+            ->orderBy('pr_number', 'desc')
+            ->first();
+            
+        $nextSeq = 1;
+        if ($highestPr) {
+            $parts = explode('-', $highestPr->pr_number);
+            $seq = end($parts);
+            if (is_numeric($seq)) {
+                $nextSeq = (int) $seq + 1;
+            }
+        }
+        
+        return $prefix . str_pad($nextSeq, 5, '0', STR_PAD_LEFT);
+    }
 }

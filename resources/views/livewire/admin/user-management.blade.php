@@ -304,6 +304,8 @@ new #[Layout('layouts.app')] class extends Component
                                 'Admin Head'          => 'bg-[#ffd8e4] text-[#31111d]',
                                 'MSD Head'            => 'bg-[#ffdad6] text-[#410002]',
                                 'Auditor'             => 'bg-[#d8e1ea] text-[#2c3135]',
+                                'Document custodian'  => 'bg-[#e8f0fe] text-[#1a73e8]',
+                                'Office Head'         => 'bg-[#f3e8ff] text-[#6b21a8]',
                             ];
                             $roleClass = $roleColors[$role] ?? 'bg-[#eeedf2] text-[#43474f]';
                         @endphp

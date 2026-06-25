@@ -24,6 +24,8 @@ class RolesAndPermissionsSeeder extends Seeder
             'manage procurement',
             'manage budget',
             'view reports',
+            'view office analytics',
+            'generate reports',
         ];
 
         foreach ($permissions as $permission) {
@@ -40,6 +42,8 @@ class RolesAndPermissionsSeeder extends Seeder
             'Admin Head' => ['view reports', 'view inventory'],
             'MSD Head' => ['view reports', 'view inventory'],
             'Auditor' => ['view reports', 'view inventory'],
+            'Document custodian' => ['manage procurement'],
+            'Office Head' => ['manage procurement', 'view office analytics', 'generate reports'],
         ];
 
         foreach ($roles as $roleName => $rolePermissions) {

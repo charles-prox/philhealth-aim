@@ -33,7 +33,8 @@ class ProcurementController extends Controller
 
     public function viewPrPdf(ProcurementFolder $folder)
     {
-        $storagePath = "pr/{$folder->pr_number}.pdf";
+        $identifier = $folder->pr_number ?: $folder->tracking_number;
+        $storagePath = "pr/{$identifier}.pdf";
         $disk = \Illuminate\Support\Facades\Storage::disk('public');
 
         // Check if PDF exists in storage, if not generate it on-the-fly
@@ -59,7 +60,7 @@ class ProcurementController extends Controller
 
         return response()->file($disk->path($storagePath), [
             'Content-Type' => 'application/pdf',
-            'Content-Disposition' => 'inline; filename="' . $folder->pr_number . '.pdf"'
+            'Content-Disposition' => 'inline; filename="' . $identifier . '.pdf"'
         ]);
     }
 }

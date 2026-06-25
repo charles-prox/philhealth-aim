@@ -44,9 +44,14 @@
                     margin-left: 5rem !important; /* md:ml-20 */
                 }
             }
+            html, body {
+                height: 100vh;
+                min-height: 100vh !important;
+                overflow: hidden;
+            }
         </style>
     </head>
-    <body class="font-sans antialiased text-[#1a1c1f] bg-[#f9f9fe]" 
+    <body class="font-sans antialiased text-[#1a1c1f] bg-[#f1f3f6]" 
           x-data="{ 
             sidebarCollapsed: localStorage.getItem('sidebar_collapsed') === 'true',
             searchOpen: false,
@@ -58,7 +63,7 @@
           }"
           @keydown.window.prevent.ctrl.k="searchOpen = true" 
           @keydown.window.prevent.cmd.k="searchOpen = true">
-        <div class="flex min-h-screen overflow-hidden">
+        <div class="flex h-screen overflow-hidden w-full">
             <!-- Sidebar (Fixed) -->
             <livewire:layout.navigation />
 

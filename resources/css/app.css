@@ -10,13 +10,13 @@
         --primary-container: #003366;
         --on-primary: #ffffff;
         --secondary: #575f67;
-        --background: #f9f9fe;
-        --surface: #f9f9fe;
+        --background: #f1f3f6;
+        --surface: #f1f3f6;
         --outline-variant: #c3c6d1;
     }
 
     body {
-        @apply bg-[#f9f9fe] text-[#1a1c1f] font-sans antialiased;
+        @apply bg-[#f1f3f6] text-[#1a1c1f] font-sans antialiased;
         min-height: max(884px, 100dvh);
     }
 
