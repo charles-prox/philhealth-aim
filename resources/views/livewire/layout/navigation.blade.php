@@ -139,6 +139,18 @@ new class extends Component
             <x-sidebar-link :href="route('admin.users')" :active="request()->routeIs('admin.users')" icon="manage_accounts">
                 User Management
             </x-sidebar-link>
+
+            @php
+                $activeOicCount = \App\Models\SignatoryRegistry::where('active_holder', '!=', 'PRIMARY')->count();
+            @endphp
+            <x-sidebar-link :href="route('admin.signatory')" :active="request()->routeIs('admin.signatory')" icon="stylus_note">
+                <span class="flex items-center justify-between w-full">
+                    <span x-show="!sidebarCollapsed">Signatory Matrix</span>
+                    @if($activeOicCount > 0)
+                        <span class="ml-auto bg-amber-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full leading-none" x-show="!sidebarCollapsed" title="{{ $activeOicCount }} active OIC override(s)">{{ $activeOicCount }} OIC</span>
+                    @endif
+                </span>
+            </x-sidebar-link>
         @endrole
     </nav>
 </aside>

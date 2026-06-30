@@ -72,6 +72,10 @@ Volt::route('admin/users', 'admin.user-management')
     ->middleware(['auth'])
     ->name('admin.users');
 
+Volt::route('admin/signatory-switchboard', 'admin.signatory-switchboard')
+    ->middleware(['auth'])
+    ->name('admin.signatory');
+
 // COB Management Module
 Volt::route('cob/registry', 'cob.cob-registry')
     ->middleware(['auth'])

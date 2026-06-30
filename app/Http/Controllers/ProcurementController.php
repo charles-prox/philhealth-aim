@@ -33,6 +33,10 @@ class ProcurementController extends Controller
 
     public function viewPrPdf(ProcurementFolder $folder)
     {
+        if (in_array($folder->status, ['DRAFT', 'CANCELLED', 'CANCELLED_BY_USER'])) {
+            abort(403, 'Generating or viewing PDFs for Draft or Cancelled Purchase Requests is not allowed.');
+        }
+
         $identifier = $folder->pr_number ?: $folder->tracking_number;
         $storagePath = "pr/{$identifier}.pdf";
         $disk = \Illuminate\Support\Facades\Storage::disk('public');
@@ -60,7 +64,10 @@ class ProcurementController extends Controller
 
         return response()->file($disk->path($storagePath), [
             'Content-Type' => 'application/pdf',
-            'Content-Disposition' => 'inline; filename="' . $identifier . '.pdf"'
+            'Content-Disposition' => 'inline; filename="' . $identifier . '.pdf"',
+            'Cache-Control' => 'no-cache, no-store, must-revalidate',
+            'Pragma' => 'no-cache',
+            'Expires' => '0',
         ]);
     }
 }

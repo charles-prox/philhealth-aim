@@ -30,6 +30,7 @@ new #[Layout('layouts.app')] class extends Component
     public ?string $rejectingFolderId = null;
     public string $rejectionRemarks = '';
     public ?string $viewingHistoryFolderId = null;
+    public ?string $viewingFolderId = null;
 
     // Approver/Recommender: inline revision overlay inside the drawer
     public ?string $inlineRevisionFolderId = null;
@@ -81,6 +82,11 @@ new #[Layout('layouts.app')] class extends Component
         $this->errorMessage = null;
         $folder = ProcurementFolder::findOrFail($folderId);
         
+        if (in_array($folder->status, ['DRAFT', 'CANCELLED', 'CANCELLED_BY_USER'])) {
+            $this->errorMessage = 'Generating or viewing PDFs for Draft or Cancelled Purchase Requests is not allowed.';
+            return;
+        }
+        
         $identifier = $folder->pr_number ?: $folder->tracking_number;
         $storagePath = "pr/{$identifier}.pdf";
         $disk = \Illuminate\Support\Facades\Storage::disk('public');
@@ -127,6 +133,11 @@ new #[Layout('layouts.app')] class extends Component
     {
         if (!auth()->user()->hasAnyRole(['Admin', 'Procurement Officer', 'Document custodian', 'Office Head'])) {
             abort(403, 'Unauthorized action.');
+        }
+
+        $folder = ProcurementFolder::findOrFail($id);
+        if ($folder->status === 'CANCELLED' || $folder->status === 'CANCELLED_BY_USER') {
+            abort(403, 'Access Denied: This Purchase Request has been permanently archived and cannot be modified.');
         }
 
         $currentYear = \App\Models\BudgetYear::where('status', 'OPEN')->value('fiscal_year') ?? now()->year;
@@ -291,25 +302,29 @@ new #[Layout('layouts.app')] class extends Component
                 'procured_quantity' => 0,
             ]);
 
-            // Release APP Line Item utilized budget
-            foreach ($folder->prItems as $item) {
-                if ($item->app_line_item_id) {
-                    $appLineItem = \App\Models\AppLineItem::find($item->app_line_item_id);
-                    if ($appLineItem) {
-                        $appLineItem->decrement('utilized_budget', $item->estimated_total_cost);
-                    }
-                }
-            }
-
-            if ($folder->pr_number) {
-                \Illuminate\Support\Facades\Storage::disk('public')->delete("pr/{$folder->pr_number}.pdf");
-            }
-
-            $folder->delete();
+            $folder->cancelAndPurge('CANCELLED_BY_USER');
         });
 
-        $this->successMessage = "PR has been deleted and distributions released.";
+        $this->successMessage = "PR has been cancelled and distributions released.";
         $this->confirmingDeleteId = null;
+    }
+
+    public function checkIsPossibleDuplicate($folder)
+    {
+        foreach ($folder->prItems as $item) {
+            $duplicateExists = DB::table('procurement_folders')
+                ->join('pr_items', 'procurement_folders.id', '=', 'pr_items.folder_id')
+                ->where('procurement_folders.id', '!=', $folder->id)
+                ->where('procurement_folders.office_id', $folder->office_id)
+                ->where('pr_items.app_line_item_id', $item->app_line_item_id)
+                ->where('pr_items.total_qty', $item->total_qty)
+                ->whereIn('procurement_folders.status', ['SUBMITTED_TO_GSU', 'ROUTING', 'APPROVED'])
+                ->where('procurement_folders.created_at', '>=', now()->subDays(30))
+                ->exists();
+
+            if ($duplicateExists) return true;
+        }
+        return false;
     }
 
     public function toggleDrawer($id)
@@ -378,6 +393,22 @@ new #[Layout('layouts.app')] class extends Component
     public function closeHistory()
     {
         $this->viewingHistoryFolderId = null;
+    }
+
+    public function viewDetails($id)
+    {
+        $this->viewingFolderId = $id;
+    }
+
+    public function closeDetails()
+    {
+        $this->viewingFolderId = null;
+    }
+
+    #[\Livewire\Attributes\Computed]
+    public function viewingFolder()
+    {
+        return $this->viewingFolderId ? \App\Models\ProcurementFolder::with('prItems.appLineItem')->find($this->viewingFolderId) : null;
     }
 
     #[On('app-status-updated')]
@@ -475,7 +506,28 @@ new #[Layout('layouts.app')] class extends Component
 
         $query = ProcurementFolder::with(['purchaseOrder', 'prItems']);
 
-        // Admins and Procurement Officers see all folders in the registry (no RBAC scoping filters needed)
+        // Scoping for Procurement Officers (who are not Admins)
+        if (!$isAdmin && $isProcurementOfficer) {
+            $query->where(function($q) use ($employeeId) {
+                // 1. Can see non-draft, non-cancelled folders
+                $q->whereNotIn('status', ['DRAFT', 'CANCELLED', 'CANCELLED_BY_USER'])
+                  // 2. Or they can see drafts they personally created/requested
+                  ->orWhere(function($sub) use ($employeeId) {
+                      $sub->where('status', 'DRAFT')
+                          ->where(function($orSub) use ($employeeId) {
+                              $orSub->where('requested_by_id', $employeeId)
+                                    ->orWhere('created_by_id', auth()->id());
+                          });
+                  })
+                  // 3. Or they can see cancelled folders ONLY if they were once submitted to GSU
+                  ->orWhere(function($sub) {
+                      $sub->whereIn('status', ['CANCELLED', 'CANCELLED_BY_USER'])
+                          ->whereHas('logs', function($l) {
+                              $l->where('action', 'SUBMITTED');
+                          });
+                  });
+            });
+        }
 
         // Apply Search Filter
         if ($this->search) {
@@ -541,7 +593,8 @@ new #[Layout('layouts.app')] class extends Component
 
         <div class="p-container-padding bg-background space-y-6" 
              x-data="{ isCreatingPr: $wire.entangle('isCreatingPr') }"
-             x-on:open-pdf.window="window.open($event.detail.url, '_blank')">
+             x-on:open-pdf.window="window.open($event.detail.url, '_blank')"
+             x-on:open-new-pr.window="$wire.openNewPr()">
 
             {{-- PR Registry Workspace --}}
             <div x-show="!isCreatingPr"
@@ -690,6 +743,8 @@ new #[Layout('layouts.app')] class extends Component
                                             'RFQ_SENT' => 'bg-[#d8e1ea] text-[#5b646b]',
                                             'AWARDED' => 'bg-green-100 text-green-800',
                                             'PO_RELEASED' => 'bg-[#d5e3ff] text-[#001b3c]',
+                                            'CANCELLED' => 'bg-red-50 text-red-700 border border-red-200',
+                                            'CANCELLED_BY_USER' => 'bg-red-50 text-red-700 border border-red-200',
                                         ];
                                         $color = $statusColors[$folder->status] ?? 'bg-gray-100 text-gray-800';
                                     @endphp
@@ -731,11 +786,19 @@ new #[Layout('layouts.app')] class extends Component
                                                      :style="`top: ${coords.top}px; left: ${coords.left}px; display: none;`"
                                                      @click="open = false">
                                                     <div class="p-1.5 space-y-1 text-left">
-                                                        {{-- View PDF (Always Available) --}}
-                                                        <button wire:click="generateAndViewPdf('{{ $folder->id }}')" wire:loading.attr="disabled" class="flex items-center gap-2.5 w-full px-3 py-2 text-xs font-bold text-[#43474f] hover:bg-[#f4f3f8] hover:text-[#001e40] rounded-lg transition-all relative whitespace-nowrap">
-                                                            <span class="material-symbols-outlined text-[18px]">visibility</span>
-                                                            <span>View PDF Form</span>
+                                                        {{-- View PR Details (Always Available) --}}
+                                                        <button wire:click="viewDetails('{{ $folder->id }}')" class="flex items-center gap-2.5 w-full px-3 py-2 text-xs font-bold text-[#43474f] hover:bg-[#f4f3f8] hover:text-[#001e40] rounded-lg transition-all whitespace-nowrap">
+                                                            <span class="material-symbols-outlined text-[18px]">info</span>
+                                                            <span>View PR Details</span>
                                                         </button>
+
+                                                        {{-- View PDF Form (Only if not Draft or Cancelled) --}}
+                                                        @if(!in_array($folder->status, ['DRAFT', 'CANCELLED', 'CANCELLED_BY_USER']))
+                                                            <button wire:click="generateAndViewPdf('{{ $folder->id }}')" wire:loading.attr="disabled" class="flex items-center gap-2.5 w-full px-3 py-2 text-xs font-bold text-[#43474f] hover:bg-[#f4f3f8] hover:text-[#001e40] rounded-lg transition-all relative whitespace-nowrap">
+                                                                <span class="material-symbols-outlined text-[18px]">visibility</span>
+                                                                <span>View PDF Form</span>
+                                                            </button>
+                                                        @endif
 
                                                         {{-- Audit Log History (Always Available) --}}
                                                         <button wire:click="viewHistory('{{ $folder->id }}')" class="flex items-center gap-2.5 w-full px-3 py-2 text-xs font-bold text-[#43474f] hover:bg-[#f4f3f8] hover:text-[#001e40] rounded-lg transition-all whitespace-nowrap">
@@ -847,7 +910,14 @@ new #[Layout('layouts.app')] class extends Component
                         <tbody class="divide-y divide-[#c3c6d1] text-[13px]">
                             @forelse($triageFolders as $folder)
                             <tr class="hover:bg-[#f4f3f8] transition-colors">
-                                <td class="p-table-cell-padding font-bold text-[#001e40]">{{ $folder->tracking_number ?? '—' }}</td>
+                                <td class="p-table-cell-padding font-bold text-[#001e40]">
+                                    <div>{{ $folder->tracking_number ?? '—' }}</div>
+                                    @if($this->checkIsPossibleDuplicate($folder))
+                                        <span class="inline-flex items-center gap-1 bg-[#fff3cd] text-[#856404] border border-[#ffeeba] px-1.5 py-0.5 rounded text-[10px] font-bold mt-1">
+                                            <span class="material-symbols-outlined text-[12px] font-bold">warning</span> Potential Duplicate
+                                        </span>
+                                    @endif
+                                </td>
                                 <td class="p-table-cell-padding text-[#1a1c1f]">{{ $folder->created_at->format('M d, Y') }}</td>
                                 <td class="p-table-cell-padding text-[#1a1c1f]">
                                     {{ $folder->requesting_unit ?? $folder->overall_purpose ?? '—' }}
@@ -929,20 +999,36 @@ new #[Layout('layouts.app')] class extends Component
         @endif
         </div>
 
-        @endif {{-- end @if($isApprover) ... @else --}}
+
 
         @if($isCreatingPr)
-            {{-- PR Compiler Workspace --}}
-            <div x-show="isCreatingPr"
-                 x-cloak
-                 x-transition:enter="transition ease-out duration-300"
-                 x-transition:enter-start="opacity-0 translate-y-4"
-                 x-transition:enter-end="opacity-100 translate-y-0"
-                 x-transition:leave="transition ease-in duration-200"
-                 x-transition:leave-start="opacity-100 translate-y-0"
-                 x-transition:leave-end="opacity-0 -translate-y-4"
-                 class="space-y-5">
-                 <livewire:procurement.pr-compiler :folder-id="$editingFolderId" :key="$editingFolderId ?? 'new-pr'" />
+            {{-- PR Compiler Workspace Modal --}}
+            <div class="fixed inset-0 bg-[#001e40]/40 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
+                <div class="bg-[#f1f3f6] border border-[#eeedf2] rounded-2xl max-w-7xl w-full shadow-2xl animate-in fade-in zoom-in-95 duration-200 relative flex flex-col my-8 h-[90vh]">
+                    <!-- Modal Header -->
+                    <div class="bg-white px-6 py-4 flex justify-between items-center border-b border-[#eeedf2] rounded-t-2xl flex-shrink-0">
+                        @php
+                            $editingFolder = $editingFolderId ? \App\Models\ProcurementFolder::find($editingFolderId) : null;
+                        @endphp
+                        @if($editingFolder)
+                            <div class="flex items-center gap-3">
+                                <h3 class="text-sm font-bold text-[#001e40] uppercase tracking-wider">Edit Draft Purchase Request</h3>
+                                <span class="px-2.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-50 text-amber-700 border border-amber-200">Draft</span>
+                                <span class="font-mono text-xs text-[#43474f]/70 bg-[#eeedf2]/50 px-2 py-0.5 rounded border border-[#c3c6d1]">{{ $editingFolder->tracking_number }}</span>
+                            </div>
+                        @else
+                            <h3 class="text-sm font-bold text-[#001e40] uppercase tracking-wider">Purchase Request Compilation Wizard</h3>
+                        @endif
+                        <button x-on:click="$dispatch('close-pr-creation')" class="p-1.5 hover:bg-[#eeedf2] rounded-lg text-[#43474f] hover:text-[#001e40] transition-all">
+                            <span class="material-symbols-outlined text-[20px] font-bold">close</span>
+                        </button>
+                    </div>
+
+                    <!-- Modal Body (Scrollable) -->
+                    <div class="overflow-y-auto px-6 py-5 flex-1">
+                         <livewire:procurement.pr-compiler :folder-id="$editingFolderId" :key="$editingFolderId ?? 'new-pr'" />
+                    </div>
+                </div>
             </div>
         @endif
 
@@ -1115,6 +1201,102 @@ new #[Layout('layouts.app')] class extends Component
                     <div class="flex justify-end pt-2 border-t border-[#eeedf2]">
                         <button wire:click="closeHistory" class="px-4 py-2 bg-[#eeedf2] hover:bg-[#f4f3f8] text-[#43474f] font-bold text-xs rounded-lg transition-all">
                             Close
+                        </button>
+                    </div>
+                </div>
+            </div>
+        @endif
+
+        {{-- Folder Details Modal --}}
+        @if($this->viewingFolder)
+            @php
+                $vf = $this->viewingFolder;
+            @endphp
+            <div class="fixed inset-0 bg-[#001e40]/40 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
+                <div class="bg-[#f1f3f6] border border-[#eeedf2] rounded-2xl max-w-4xl w-full shadow-2xl animate-in fade-in zoom-in-95 duration-200 relative flex flex-col my-8 h-[80vh]">
+                    <!-- Modal Header -->
+                    <div class="bg-white px-6 py-4 flex justify-between items-center border-b border-[#eeedf2] rounded-t-2xl flex-shrink-0">
+                        <div class="flex items-center gap-3">
+                            <h3 class="text-sm font-bold text-[#001e40] uppercase tracking-wider">Purchase Request Details</h3>
+                            <span class="px-2.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider
+                                {{ $vf->status === 'APPROVED' ? 'bg-green-50 text-green-700 border border-green-200' : 
+                                   (in_array($vf->status, ['CANCELLED', 'CANCELLED_BY_USER']) ? 'bg-red-50 text-red-700 border border-red-200' : 
+                                   ($vf->status === 'DRAFT' ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-blue-50 text-blue-700 border border-blue-200')) }}">
+                                {{ str_replace('_', ' ', $vf->status) }}
+                            </span>
+                            <span class="font-mono text-xs text-[#43474f]/70 bg-[#eeedf2]/50 px-2 py-0.5 rounded border border-[#c3c6d1]">{{ $vf->tracking_number }}</span>
+                        </div>
+                        <button wire:click="closeDetails" class="p-1.5 hover:bg-[#eeedf2] rounded-lg text-[#43474f] hover:text-[#001e40] transition-all">
+                            <span class="material-symbols-outlined text-[20px] font-bold">close</span>
+                        </button>
+                    </div>
+
+                    <!-- Modal Body -->
+                    <div class="overflow-y-auto px-6 py-5 flex-1 space-y-6">
+                        <!-- Metadata Cards -->
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div class="bg-white p-4 border border-[#eeedf2] rounded-xl space-y-2">
+                                <h4 class="text-[10px] uppercase font-bold tracking-wider text-[#43474f]/60">Operational Details</h4>
+                                <div class="space-y-1.5 text-xs text-[#001e40]">
+                                    <div><strong class="text-[#43474f]">PR Number:</strong> {{ $vf->pr_number ?: 'Not assigned' }}</div>
+                                    <div><strong class="text-[#43474f]">Procurement Method:</strong> {{ $vf->procurement_method ?: 'Shopping' }}</div>
+                                    <div><strong class="text-[#43474f]">Created By:</strong> {{ $vf->created_at ? $vf->created_at->format('Y-m-d H:i') : '' }}</div>
+                                </div>
+                            </div>
+                            <div class="bg-white p-4 border border-[#eeedf2] rounded-xl space-y-2">
+                                <h4 class="text-[10px] uppercase font-bold tracking-wider text-[#43474f]/60">Purpose</h4>
+                                <p class="text-xs text-[#001e40] italic leading-relaxed">{{ $vf->overall_purpose ?: 'No purpose specified' }}</p>
+                            </div>
+                        </div>
+
+                        <!-- Items Table -->
+                        <div class="bg-white border border-[#c3c6d1] rounded-xl overflow-hidden shadow-2xs">
+                            <table class="w-full text-left border-collapse text-xs">
+                                <thead>
+                                    <tr class="bg-[#f9f9fe] border-b border-[#eeedf2]">
+                                        <th class="p-3 font-bold text-[#001e40] uppercase tracking-wider">Item Description</th>
+                                        <th class="p-3 font-bold text-[#001e40] uppercase tracking-wider text-center">Qty</th>
+                                        <th class="p-3 font-bold text-[#001e40] uppercase tracking-wider text-center">Unit</th>
+                                        <th class="p-3 font-bold text-[#001e40] uppercase tracking-wider text-right">Unit Price</th>
+                                        <th class="p-3 font-bold text-[#001e40] uppercase tracking-wider text-right">Total Price</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @php $totalCost = 0; @endphp
+                                    @forelse($vf->prItems as $item)
+                                        @php
+                                            $desc = $item->item_description_override ?? $item->appLineItem?->description ?? 'Unknown Particulars';
+                                            $cost = $item->estimated_unit_cost ?? $item->unit_cost ?? 0;
+                                            $total = $item->total_qty * $cost;
+                                            $totalCost += $total;
+                                        @endphp
+                                        <tr class="border-b border-[#eeedf2]/60 hover:bg-[#f9f9fe]/40">
+                                            <td class="p-3 font-medium text-[#001e40]">{{ $desc }}</td>
+                                            <td class="p-3 text-center text-[#43474f]">{{ $item->total_qty }}</td>
+                                            <td class="p-3 text-center text-[#43474f]">{{ $item->unit ?: 'pcs' }}</td>
+                                            <td class="p-3 text-right text-[#43474f]">₱{{ number_format($cost, 2) }}</td>
+                                            <td class="p-3 text-right font-bold text-[#001e40]">₱{{ number_format($total, 2) }}</td>
+                                        </tr>
+                                    @empty
+                                        <tr>
+                                            <td colspan="5" class="p-8 text-center text-[#43474f]/50 italic">No items compiled in this PR.</td>
+                                        </tr>
+                                    @endforelse
+                                    @if($vf->prItems->isNotEmpty())
+                                        <tr class="bg-[#f9f9fe]/50 font-bold border-t border-[#eeedf2]">
+                                            <td colspan="4" class="p-3 text-right text-[#001e40] uppercase tracking-wider">Total Value</td>
+                                            <td class="p-3 text-right text-[#001e40] text-sm">₱{{ number_format($totalCost, 2) }}</td>
+                                        </tr>
+                                    @endif
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    <!-- Modal Footer -->
+                    <div class="bg-white px-6 py-4 border-t border-[#eeedf2] rounded-b-2xl flex justify-end flex-shrink-0">
+                        <button wire:click="closeDetails" class="px-5 py-2 bg-[#eeedf2] hover:bg-[#c3c6d1] text-[#43474f] font-bold text-xs rounded-xl transition-all active:scale-95">
+                            Close Details
                         </button>
                     </div>
                 </div>

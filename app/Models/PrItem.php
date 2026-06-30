@@ -74,6 +74,11 @@ class PrItem extends Model
             ?? ($this->unit_cost >= 50000 ? 'PAR' : 'ICS');
     }
 
+    public function getQuantityAttribute(): int
+    {
+        return $this->total_qty;
+    }
+
     // -------------------------------------------------------------------------
     // Relationships
     // -------------------------------------------------------------------------

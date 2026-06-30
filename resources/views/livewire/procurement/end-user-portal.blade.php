@@ -45,6 +45,13 @@ new class extends Component
             return;
         }
 
+        if ($folderId) {
+            $folder = ProcurementFolder::findOrFail($folderId);
+            if ($folder->status === 'CANCELLED' || $folder->status === 'CANCELLED_BY_USER') {
+                abort(403, 'Access Denied: This Purchase Request has been permanently archived and cannot be modified.');
+            }
+        }
+
         $this->folderId = $folderId;
         $this->resetState();
     }
@@ -79,7 +86,7 @@ new class extends Component
                     $uniqueKey = 'item_' . uniqid() . '_' . $item->id;
                     $this->basket[$uniqueKey] = [
                         'app_line_item_id' => $item->app_line_item_id,
-                        'project_title' => $item->appLineItem?->project_title ?? 'Ad-hoc Item',
+                        'project_title' => $item->appLineItem?->project_title ?? 'Item',
                         'description' => $item->item_description_override ?? $item->appLineItem?->description ?? 'Unknown Particulars',
                         'qty' => $item->total_qty,
                         'unit' => $item->unit ?? 'pcs',
@@ -198,11 +205,18 @@ new class extends Component
             }
             $this->currentStep = 2;
         } elseif ($this->currentStep === 2) {
+            // Narrow containment validation — prevents forged IDs from bypassing the dropdown
+            $validRecommenderIds = $this->validRecommenders->keys()->implode(',');
+            $validApproverIds    = $this->validApprovers->keys()->implode(',');
+
             $this->validate([
                 'trackingNumber'   => 'required|string|max:50|unique:procurement_folders,tracking_number,' . ($this->folderId ?? 'NULL') . ',id',
                 'purpose'          => 'required|string|max:1000',
-                'recommendedById'  => 'required|integer|exists:employees,id',
-                'approvedById'     => 'required|integer|exists:employees,id',
+                'recommendedById'  => 'required|integer|in:' . $validRecommenderIds,
+                'approvedById'     => 'required|integer|in:' . $validApproverIds,
+            ], [
+                'recommendedById.in' => 'The selected recommending officer is not an authorized signatory for this PR.',
+                'approvedById.in'    => 'The selected approving officer is not an authorized signatory for this PR.',
             ]);
 
             if (empty($this->basket)) {
@@ -286,11 +300,18 @@ new class extends Component
 
     public function processPrGeneration(bool $submitToGsu = false): void
     {
+        // Re-validate with the narrow containment check at final submission too
+        $validRecommenderIds = $this->validRecommenders->keys()->implode(',');
+        $validApproverIds    = $this->validApprovers->keys()->implode(',');
+
         $this->validate([
             'trackingNumber'   => 'required|string|max:50|unique:procurement_folders,tracking_number,' . ($this->folderId ?? 'NULL') . ',id',
             'purpose'          => 'required|string|max:1000',
-            'recommendedById'  => 'required|integer|exists:employees,id',
-            'approvedById'     => 'required|integer|exists:employees,id',
+            'recommendedById'  => 'required|integer|in:' . $validRecommenderIds,
+            'approvedById'     => 'required|integer|in:' . $validApproverIds,
+        ], [
+            'recommendedById.in' => 'The selected recommending officer is not an authorized signatory for this PR.',
+            'approvedById.in'    => 'The selected approving officer is not an authorized signatory for this PR.',
         ]);
 
         if (empty($this->basket)) {
@@ -397,11 +418,13 @@ new class extends Component
                     'recommended_by_designation'   => $recommendedEmployee->designation,
                     'approved_by_id'               => $this->approvedById,
                     'approved_by_designation'      => $approvedEmployee->designation,
+                    'office_id'                    => auth()->user()->office_id,
+                    'created_by_id'                => auth()->id(),
                 ]);
             } else {
                 $folder = ProcurementFolder::create([
                     'tracking_number'              => $this->trackingNumber,
-                    'project_title'                => 'Ad-hoc PR compiled from APP on ' . now()->format('Y-m-d H:i'),
+                    'project_title'                => 'PR compiled from APP on ' . now()->format('Y-m-d H:i'),
                     'procurement_method'           => 'Shopping',
                     'overall_purpose'              => $this->purpose,
                     'status'                       => $status,
@@ -412,6 +435,8 @@ new class extends Component
                     'recommended_by_designation'   => $recommendedEmployee->designation,
                     'approved_by_id'               => $this->approvedById,
                     'approved_by_designation'      => $approvedEmployee->designation,
+                    'office_id'                    => auth()->user()->office_id,
+                    'created_by_id'                => auth()->id(),
                 ]);
             }
 
@@ -438,7 +463,7 @@ new class extends Component
                 'procurement_folder_id' => $folder->id,
                 'action' => $status === 'SUBMITTED_TO_GSU' ? 'SUBMITTED' : 'CREATED',
                 'actor_id' => $requestedById,
-                'remarks' => $status === 'SUBMITTED_TO_GSU' ? 'Ad-hoc PR submitted to GSU Triage Box.' : 'Ad-hoc PR draft saved.',
+                'remarks' => $status === 'SUBMITTED_TO_GSU' ? 'PR submitted to GSU Triage Box.' : 'PR draft saved.',
             ]);
 
             return $folder;
@@ -514,13 +539,141 @@ new class extends Component
         return $this->selectedAppLineId ? AppLineItem::find($this->selectedAppLineId) : null;
     }
 
+    /**
+     * Recommender pool: GSU Head + the Division Chief for the requesting user's office.
+     * Returns an ordered id => "Name — Designation" map for the x-form-select component.
+     *
+     * Pulls ALL employees assigned to those slots (primary + both OICs) so the user
+     * can always select the specific individual physically handling recommending duties,
+     * regardless of which OIC position is currently set as active_holder.
+     */
+    /**
+     * Dynamic Active Recommender Pool
+     * Checks creator's office hierarchy tier and returns only active authorized recommenders.
+     */
     #[Computed]
-    public function employeeOptions(): array
+    public function validRecommenders(): \Illuminate\Support\Collection
     {
-        return Employee::orderBy('fullname')
+        $userOffice = auth()->user()->office;
+        if (!$userOffice) {
+            return collect();
+        }
+
+        $recommenderIds = [];
+
+        // 1. Fetch the Active GSU Unit Head (central recommending authority)
+        $gsuOffice = \App\Models\Office::where('acronym', 'GSU')->first();
+        if ($gsuOffice) {
+            $gsuSigner = \App\Models\SignatoryRegistry::getActiveSignatoryFor('UNIT_HEAD', $gsuOffice->id);
+            if ($gsuSigner) {
+                $recommenderIds[] = $gsuSigner;
+            }
+        }
+
+        // 2. Fetch local boss depending on organizational type (Division, Section, or Unit)
+        if ($userOffice->type === 'UNIT') {
+            // Unit members report to parent Section head or Division Chief
+            $parent = $userOffice->parent;
+            if ($parent && $parent->type === 'SECTION') {
+                $sectionSigner = \App\Models\SignatoryRegistry::getActiveSignatoryFor('SECTION_HEAD', $parent->id);
+                if ($sectionSigner) {
+                    $recommenderIds[] = $sectionSigner;
+                }
+            } elseif ($parent && $parent->type === 'DIVISION') {
+                $positionSlug = $parent->acronym === 'ORVP' ? 'RVP' : $parent->acronym . '_CHIEF';
+                if ($parent->acronym === 'MSD') {
+                    $positionSlug = 'MSD_HEAD';
+                }
+                $divisionSigner = \App\Models\SignatoryRegistry::getActiveSignatoryFor($positionSlug);
+                if ($divisionSigner) {
+                    $recommenderIds[] = $divisionSigner;
+                }
+            }
+        } elseif ($userOffice->type === 'SECTION' || $userOffice->type === 'DIVISION') {
+            // Section or Division members report to parent Division Chief
+            $userDivision = $userOffice->type === 'DIVISION' ? $userOffice : $userOffice->division;
+            if ($userDivision) {
+                $positionSlug = $userDivision->acronym === 'ORVP' ? 'RVP' : $userDivision->acronym . '_CHIEF';
+                if ($userDivision->acronym === 'MSD') {
+                    $positionSlug = 'MSD_HEAD';
+                }
+
+                $divisionSigner = \App\Models\SignatoryRegistry::getActiveSignatoryFor($positionSlug);
+                if ($divisionSigner) {
+                    $recommenderIds[] = $divisionSigner;
+                }
+            }
+        }
+
+        $recommenderIds = array_filter(array_unique($recommenderIds));
+
+        if (empty($recommenderIds)) {
+            return collect();
+        }
+
+        return Employee::whereIn('id', $recommenderIds)
+            ->orderBy('fullname')
             ->get()
-            ->mapWithKeys(fn($emp) => [$emp->id => "{$emp->fullname} — {$emp->designation}"])
-            ->toArray();
+            ->mapWithKeys(fn($emp) => [$emp->id => "{$emp->fullname} — {$emp->designation}"]);
+    }
+
+    /**
+     * Dynamic Active Approver Pool
+     * Returns only the active MSD Head and RVP who are authorized to approve.
+     */
+    #[Computed]
+    public function validApprovers(): \Illuminate\Support\Collection
+    {
+        $approverIds = [];
+
+        $msdSigner = \App\Models\SignatoryRegistry::getActiveSignatoryFor('MSD_HEAD');
+        if ($msdSigner) {
+            $approverIds[] = $msdSigner;
+        }
+
+        $rvpSigner = \App\Models\SignatoryRegistry::getActiveSignatoryFor('RVP');
+        if ($rvpSigner) {
+            $approverIds[] = $rvpSigner;
+        }
+
+        $approverIds = array_filter(array_unique($approverIds));
+
+        if (empty($approverIds)) {
+            return collect();
+        }
+
+        return Employee::whereIn('id', $approverIds)
+            ->orderBy('fullname')
+            ->get()
+            ->mapWithKeys(fn($emp) => [$emp->id => "{$emp->fullname} — {$emp->designation}"]);
+    }
+
+    #[Computed]
+    public function recentItemHistory(): \Illuminate\Support\Collection
+    {
+        if (!$this->selectedAppLineId) return collect();
+
+        $items = DB::table('procurement_folders')
+            ->join('pr_items', 'procurement_folders.id', '=', 'pr_items.folder_id')
+            ->leftJoin('app_line_items', 'pr_items.app_line_item_id', '=', 'app_line_items.id')
+            ->where('pr_items.app_line_item_id', $this->selectedAppLineId)
+            ->where('procurement_folders.office_id', auth()->user()->office_id)
+            ->whereNotIn('procurement_folders.status', ['CANCELLED', 'CANCELLED_BY_USER'])
+            ->select(
+                'procurement_folders.id as folder_id',
+                'procurement_folders.tracking_number',
+                'procurement_folders.pr_number',
+                'procurement_folders.status',
+                'procurement_folders.overall_purpose',
+                \Illuminate\Support\Facades\DB::raw("COALESCE(pr_items.item_description_override, app_line_items.description, 'Unknown Item') as item_desc"),
+                'pr_items.total_qty as quantity',
+                \Illuminate\Support\Facades\DB::raw('COALESCE(pr_items.estimated_unit_cost, pr_items.unit_cost, 0) as unit_price'),
+                'procurement_folders.created_at'
+            )
+            ->latest('procurement_folders.created_at')
+            ->get();
+
+        return $items->groupBy('tracking_number');
     }
 
     #[Computed]
@@ -531,20 +684,12 @@ new class extends Component
 }; ?>
 
 <div>
-    <div class="space-y-5">
-        <!-- Sticky Wizard Header Wrapper -->
-        <div class="sticky top-0 z-30 bg-[#f1f3f6] -mt-6 pt-6 pb-3 space-y-4">
-            <!-- Top Back Bar -->
-            <div class="flex items-center">
-                <button wire:click="returnToDashboard" 
-                        class="inline-flex items-center gap-2 px-4 py-2 bg-white border border-[#c3c6d1] hover:border-[#001e40] text-[#43474f] hover:text-[#001e40] font-bold text-xs rounded-xl shadow-sm hover:shadow transition-all active:scale-95">
-                    <span class="material-symbols-outlined text-[16px]">arrow_back</span>
-                    Cancel & Exit Portal
-                </button>
-            </div>
+    <!-- Sticky Wizard Header Wrapper -->
+    <div class="sticky top-0 z-30 bg-[#f1f3f6] -mt-6 pt-6 pb-3 space-y-4">
 
-            <!-- Wizard Step Indicator -->
-            <div class="bg-white border border-[#eeedf2] rounded-2xl p-5 shadow-2xs">
+
+        <!-- Wizard Step Indicator -->
+        <div class="bg-white border border-[#eeedf2] rounded-2xl p-5 shadow-2xs">
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div class="flex items-center gap-3 p-3 rounded-xl border transition-all duration-300
                         {{ $currentStep === 1 ? 'bg-[#001e40]/5 border-[#001e40]/20' : ($currentStep > 1 ? 'bg-green-50/40 border-green-100/60 opacity-80' : 'bg-transparent border-transparent opacity-50') }}">
@@ -578,7 +723,7 @@ new class extends Component
                         </div>
                         <div class="space-y-0.5">
                             <p class="text-[11px] font-bold uppercase tracking-wider {{ $currentStep === 3 ? 'text-[#001e40]' : 'text-[#43474f]/70' }}">Review & Submit</p>
-                            <p class="text-[9px] text-[#43474f]/60 leading-tight">Verify ad-hoc PR bundle</p>
+                            <p class="text-[9px] text-[#43474f]/60 leading-tight">Verify PR bundle</p>
                         </div>
                     </div>
                 </div>
@@ -629,6 +774,7 @@ new class extends Component
                         <span class="material-symbols-outlined text-[18px]">arrow_forward</span>
                     </button>
                 </div>
+
             @endif
         </div>
 
@@ -643,76 +789,301 @@ new class extends Component
             @enderror
 
             <!-- Catalog Layout -->
-            <div class="space-y-4">
-                @forelse($this->appLineItems as $item)
-                    @php
-                        $available = $item->approved_budget - $item->utilized_budget;
-                        $inBasket = $this->isInBasket($item->id);
-                    @endphp
-                    <div class="bg-white border rounded-xl p-4 transition-all duration-200 border-[#eeedf2] hover:border-[#c3c6d1] hover:shadow-2xs relative">
-                        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                            <div class="space-y-1.5 flex-1 min-w-0">
-                                <div class="flex items-center gap-2 flex-wrap">
-                                    <span class="px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider rounded bg-[#eeedf2] text-[#43474f]">{{ $item->procurement_mode }}</span>
-                                    @if($item->is_epa)
-                                        <span class="px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider rounded bg-blue-50 text-blue-700 border border-blue-100/50">EPA</span>
-                                    @endif
-                                    @if($inBasket)
-                                        <span class="px-2 py-0.5 bg-green-50 text-green-700 border border-green-200/60 text-[9px] font-bold uppercase rounded">Selected</span>
-                                    @endif
-                                </div>
-                                <div>
-                                    <!-- Highlighted Description -->
-                                    <h4 class="font-bold text-[#001e40] text-sm leading-snug">{{ $item->description }}</h4>
-                                    <!-- Muted Project Title -->
-                                    <p class="text-[11px] text-[#43474f]/70 mt-0.5 truncate" title="{{ $item->project_title }}">{{ $item->project_title }}</p>
-                                </div>
-                            </div>
-
-                            <!-- Budget Info & Action Actions -->
-                            <div class="flex items-center gap-6 shrink-0 justify-between md:justify-end">
-                                <div class="text-left md:text-right">
-                                    <span class="text-[#43474f]/60 font-semibold block uppercase text-[9px] tracking-wider">Remaining Budget</span>
-                                    <span class="font-bold text-xs text-green-700">₱{{ number_format($available, 2) }}</span>
-                                    <span class="text-[10px] text-[#43474f]/40 block hidden md:block">of ₱{{ number_format($item->approved_budget, 2) }}</span>
-                                </div>
-
-                                <div>
-                                    @if(!$inBasket)
-                                        @if($available > 0)
-                                            <button wire:click="toggleSelection({{ $item->id }})" class="bg-[#001e40] text-white px-3.5 py-2 rounded-lg text-xs font-bold hover:bg-[#001e40]/90 active:scale-95 transition-all flex items-center gap-1.5 shadow-xs">
-                                                <span class="material-symbols-outlined text-[14px]">add_shopping_cart</span>Select
-                                            </button>
-                                        @else
-                                            <span class="text-[11px] text-[#ba1a1a] font-bold italic flex items-center gap-1">
-                                                <span class="material-symbols-outlined text-[14px]">block</span> Exhausted
-                                            </span>
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
+                <!-- Left Column: APP Catalog list -->
+                <div class="lg:col-span-2 space-y-4 my-8">
+                    @forelse($this->appLineItems as $item)
+                        @php
+                            $available = $item->approved_budget - $item->utilized_budget;
+                            $inBasket = $this->isInBasket($item->id);
+                        @endphp
+                        <div class="bg-white border rounded-xl p-4 transition-all duration-200 border-[#eeedf2] hover:border-[#c3c6d1] hover:shadow-2xs relative">
+                            <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                                <div class="space-y-1.5 flex-1 min-w-0">
+                                    <div class="flex items-center gap-2 flex-wrap">
+                                        <span class="px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider rounded bg-[#eeedf2] text-[#43474f]">{{ $item->procurement_mode }}</span>
+                                        @if($item->is_epa)
+                                            <span class="px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider rounded bg-blue-50 text-blue-700 border border-blue-100/50">EPA</span>
                                         @endif
-                                    @else
-                                        <button wire:click="toggleSelection({{ $item->id }})" class="text-xs font-bold text-[#ba1a1a] hover:bg-red-50 px-3 py-2 rounded-lg border border-red-100 transition-all flex items-center gap-1">
-                                            <span class="material-symbols-outlined text-[14px]">remove_shopping_cart</span>Deselect
-                                        </button>
-                                    @endif
+                                        @if($inBasket)
+                                            <span class="px-2 py-0.5 bg-green-50 text-green-700 border border-green-200/60 text-[9px] font-bold uppercase rounded">Selected</span>
+                                        @endif
+                                    </div>
+                                    <div>
+                                        <!-- Highlighted Description -->
+                                        <h4 class="font-bold text-[#001e40] text-sm leading-snug">{{ $item->description }}</h4>
+                                        <!-- Muted Project Title -->
+                                        <p class="text-[11px] text-[#43474f]/70 mt-0.5 truncate" title="{{ $item->project_title }}">{{ $item->project_title }}</p>
+                                    </div>
+                                </div>
+
+                                <!-- Budget Info & Action Actions -->
+                                <div class="flex items-center gap-6 shrink-0 justify-between md:justify-end">
+                                    <div class="text-left md:text-right">
+                                        <span class="text-[#43474f]/60 font-semibold block uppercase text-[9px] tracking-wider">Remaining Budget</span>
+                                        <span class="font-bold text-xs text-green-700">₱{{ number_format($available, 2) }}</span>
+                                        <span class="text-[10px] text-[#43474f]/40 block hidden md:block">of ₱{{ number_format($item->approved_budget, 2) }}</span>
+                                    </div>
+
+                                    <div>
+                                        @if(!$inBasket)
+                                            @if($available > 0)
+                                                <button wire:click="toggleSelection({{ $item->id }})" class="bg-[#001e40] text-white px-3.5 py-2 rounded-lg text-xs font-bold hover:bg-[#001e40]/90 active:scale-95 transition-all flex items-center gap-1.5 shadow-xs">
+                                                    <span class="material-symbols-outlined text-[14px]">add_shopping_cart</span>Select
+                                                </button>
+                                            @else
+                                                <span class="text-[11px] text-[#ba1a1a] font-bold italic flex items-center gap-1">
+                                                    <span class="material-symbols-outlined text-[14px]">block</span> Exhausted
+                                                </span>
+                                            @endif
+                                        @else
+                                            <button wire:click="toggleSelection({{ $item->id }})" class="text-xs font-bold text-[#ba1a1a] hover:bg-red-50 px-3 py-2 rounded-lg border border-red-100 transition-all flex items-center gap-1">
+                                                <span class="material-symbols-outlined text-[14px]">remove_shopping_cart</span>Deselect
+                                            </button>
+                                        @endif
+                                    </div>
                                 </div>
                             </div>
                         </div>
-                    </div>
-                @empty
-                    <div class="bg-white border border-[#c3c6d1] rounded-2xl p-16 text-center">
-                        <span class="material-symbols-outlined text-[48px] text-[#c3c6d1]">search_off</span>
-                        <p class="font-bold text-[#001e40] mt-2">No APP line items found.</p>
-                    </div>
-                @endforelse
+                    @empty
+                        <div class="bg-white border border-[#c3c6d1] rounded-2xl p-16 text-center">
+                            <span class="material-symbols-outlined text-[48px] text-[#c3c6d1]">search_off</span>
+                            <p class="font-bold text-[#001e40] mt-2">No APP line items found.</p>
+                        </div>
+                    @endforelse
 
-                <div class="pt-2">
-                    {{ $this->appLineItems->links() }}
+                    <div class="pt-2">
+                        @if($this->appLineItems->hasPages())
+                            <div class="flex items-center justify-between border border-[#eeedf2] bg-white px-5 py-3 rounded-xl shadow-2xs">
+                                <div class="flex flex-1 justify-between sm:hidden">
+                                    <button wire:click="previousPage" class="px-4 py-2 bg-white border border-[#c3c6d1] hover:border-[#001e40] text-[#43474f] font-bold text-xs rounded-xl active:scale-95 transition-all" @if($this->appLineItems->onFirstPage()) disabled @endif>
+                                        Previous
+                                    </button>
+                                    <button wire:click="nextPage" class="ml-3 px-4 py-2 bg-white border border-[#c3c6d1] hover:border-[#001e40] text-[#43474f] font-bold text-xs rounded-xl active:scale-95 transition-all" @if(!$this->appLineItems->hasMorePages()) disabled @endif>
+                                        Next
+                                    </button>
+                                </div>
+                                <div class="hidden sm:flex sm:flex-1 sm:items-center sm:justify-between">
+                                    <div>
+                                        <p class="text-xs text-[#43474f]">
+                                            Showing <span class="font-bold">{{ $this->appLineItems->firstItem() }}</span> to <span class="font-bold">{{ $this->appLineItems->lastItem() }}</span> of <span class="font-bold">{{ $this->appLineItems->total() }}</span> results
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <nav class="flex items-center gap-1.5" aria-label="Pagination">
+                                            {{-- Previous Page Button --}}
+                                            <button wire:click="previousPage" class="bg-white border border-[#c3c6d1] text-[#43474f] hover:border-[#001e40] hover:text-[#001e40] p-1.5 rounded-lg disabled:opacity-40 disabled:pointer-events-none transition-all active:scale-95 flex items-center justify-center" @if($this->appLineItems->onFirstPage()) disabled @endif>
+                                                <span class="material-symbols-outlined text-[18px]">chevron_left</span>
+                                            </button>
+
+                                            {{-- Custom Page Numbers --}}
+                                            @php
+                                                $currentPage = $this->appLineItems->currentPage();
+                                                $lastPage = $this->appLineItems->lastPage();
+                                            @endphp
+
+                                            @if($lastPage <= 7)
+                                                {{-- If total pages is small, show all pages --}}
+                                                @for($i = 1; $i <= $lastPage; $i++)
+                                                    <button wire:click="gotoPage({{ $i }})" class="px-3 py-1.5 rounded-lg text-xs font-bold border transition-all active:scale-95 flex items-center justify-center min-w-[32px] min-h-[32px] {{ $currentPage === $i ? 'bg-[#001e40] text-white border-[#001e40] shadow-xs' : 'bg-white border-[#c3c6d1] text-[#43474f] hover:border-[#001e40] hover:text-[#001e40]' }}">
+                                                        {{ $i }}
+                                                    </button>
+                                                @endfor
+                                            @else
+                                                @if($currentPage <= 4)
+                                                    {{-- Show pages 1 to 5 --}}
+                                                    @for($i = 1; $i <= 5; $i++)
+                                                        <button wire:click="gotoPage({{ $i }})" class="px-3 py-1.5 rounded-lg text-xs font-bold border transition-all active:scale-95 flex items-center justify-center min-w-[32px] min-h-[32px] {{ $currentPage === $i ? 'bg-[#001e40] text-white border-[#001e40] shadow-xs' : 'bg-white border-[#c3c6d1] text-[#43474f] hover:border-[#001e40] hover:text-[#001e40]' }}">
+                                                            {{ $i }}
+                                                        </button>
+                                                    @endfor
+
+                                                    {{-- Show ellipsis --}}
+                                                    <span class="text-[#43474f]/50 border-none font-bold min-w-[20px] select-none text-center">...</span>
+
+                                                    {{-- Show last 2 pages --}}
+                                                    @for($i = $lastPage - 1; $i <= $lastPage; $i++)
+                                                        <button wire:click="gotoPage({{ $i }})" class="px-3 py-1.5 rounded-lg text-xs font-bold border transition-all active:scale-95 flex items-center justify-center min-w-[32px] min-h-[32px] {{ $currentPage === $i ? 'bg-[#001e40] text-white border-[#001e40] shadow-xs' : 'bg-white border-[#c3c6d1] text-[#43474f] hover:border-[#001e40] hover:text-[#001e40]' }}">
+                                                            {{ $i }}
+                                                        </button>
+                                                    @endfor
+                                                @elseif($currentPage >= $lastPage - 3)
+                                                    {{-- Show first 2 pages --}}
+                                                    @for($i = 1; $i <= 2; $i++)
+                                                        <button wire:click="gotoPage({{ $i }})" class="px-3 py-1.5 rounded-lg text-xs font-bold border transition-all active:scale-95 flex items-center justify-center min-w-[32px] min-h-[32px] {{ $currentPage === $i ? 'bg-[#001e40] text-white border-[#001e40] shadow-xs' : 'bg-white border-[#c3c6d1] text-[#43474f] hover:border-[#001e40] hover:text-[#001e40]' }}">
+                                                            {{ $i }}
+                                                        </button>
+                                                    @endfor
+
+                                                    {{-- Show ellipsis --}}
+                                                    <span class="text-[#43474f]/50 border-none font-bold min-w-[20px] select-none text-center">...</span>
+
+                                                    {{-- Show last 5 pages --}}
+                                                    @for($i = $lastPage - 4; $i <= $lastPage; $i++)
+                                                        <button wire:click="gotoPage({{ $i }})" class="px-3 py-1.5 rounded-lg text-xs font-bold border transition-all active:scale-95 flex items-center justify-center min-w-[32px] min-h-[32px] {{ $currentPage === $i ? 'bg-[#001e40] text-white border-[#001e40] shadow-xs' : 'bg-white border-[#c3c6d1] text-[#43474f] hover:border-[#001e40] hover:text-[#001e40]' }}">
+                                                            {{ $i }}
+                                                        </button>
+                                                    @endfor
+                                                @else
+                                                    {{-- Show first 2 pages --}}
+                                                    @for($i = 1; $i <= 2; $i++)
+                                                        <button wire:click="gotoPage({{ $i }})" class="px-3 py-1.5 rounded-lg text-xs font-bold border transition-all active:scale-95 flex items-center justify-center min-w-[32px] min-h-[32px] {{ $currentPage === $i ? 'bg-[#001e40] text-white border-[#001e40] shadow-xs' : 'bg-white border-[#c3c6d1] text-[#43474f] hover:border-[#001e40] hover:text-[#001e40]' }}">
+                                                            {{ $i }}
+                                                        </button>
+                                                    @endfor
+
+                                                    {{-- Show ellipsis --}}
+                                                    <span class="text-[#43474f]/50 border-none font-bold min-w-[20px] select-none text-center">...</span>
+
+                                                    {{-- Show sliding window of 3 pages --}}
+                                                    @for($i = $currentPage - 1; $i <= $currentPage + 1; $i++)
+                                                        <button wire:click="gotoPage({{ $i }})" class="px-3 py-1.5 rounded-lg text-xs font-bold border transition-all active:scale-95 flex items-center justify-center min-w-[32px] min-h-[32px] {{ $currentPage === $i ? 'bg-[#001e40] text-white border-[#001e40] shadow-xs' : 'bg-white border-[#c3c6d1] text-[#43474f] hover:border-[#001e40] hover:text-[#001e40]' }}">
+                                                            {{ $i }}
+                                                        </button>
+                                                    @endfor
+
+                                                    {{-- Show ellipsis --}}
+                                                    <span class="text-[#43474f]/50 border-none font-bold min-w-[20px] select-none text-center">...</span>
+
+                                                    {{-- Show last 2 pages --}}
+                                                    @for($i = $lastPage - 1; $i <= $lastPage; $i++)
+                                                        <button wire:click="gotoPage({{ $i }})" class="px-3 py-1.5 rounded-lg text-xs font-bold border transition-all active:scale-95 flex items-center justify-center min-w-[32px] min-h-[32px] {{ $currentPage === $i ? 'bg-[#001e40] text-white border-[#001e40] shadow-xs' : 'bg-white border-[#c3c6d1] text-[#43474f] hover:border-[#001e40] hover:text-[#001e40]' }}">
+                                                            {{ $i }}
+                                                        </button>
+                                                    @endfor
+                                                @endif
+                                            @endif
+
+                                            {{-- Next Page Button --}}
+                                            <button wire:click="nextPage" class="bg-white border border-[#c3c6d1] text-[#43474f] hover:border-[#001e40] hover:text-[#001e40] p-1.5 rounded-lg disabled:opacity-40 disabled:pointer-events-none transition-all active:scale-95 flex items-center justify-center" @if(!$this->appLineItems->hasMorePages()) disabled @endif>
+                                                <span class="material-symbols-outlined text-[18px]">chevron_right</span>
+                                            </button>
+                                        </nav>
+                                    </div>
+                                </div>
+                            </div>
+                        @endif
+                    </div>
+                </div>
+
+                <!-- Right Column: Sidebar (Selected Item details & History) -->
+                <div class="lg:col-span-1 sticky top-[320px] space-y-4 my-4">
+                    @if($this->selectedAppLine)
+                        <div class="bg-white border border-[#eeedf2] rounded-2xl p-5 shadow-2xs space-y-4">
+                            <div class="flex items-center gap-2 border-b border-[#eeedf2] pb-3">
+                                <div class="w-8 h-8 rounded-lg bg-[#001e40]/10 flex items-center justify-center text-[#001e40]">
+                                    <span class="material-symbols-outlined text-[18px]">info</span>
+                                </div>
+                                <div>
+                                    <h4 class="text-xs font-bold text-[#001e40] uppercase tracking-wider">Selected Item Details</h4>
+                                </div>
+                            </div>
+                            
+                            <div class="space-y-3">
+                                <div>
+                                    <span class="text-[9px] uppercase font-bold tracking-wider text-[#43474f]/60">Description</span>
+                                    <p class="text-xs font-bold text-[#001e40] leading-snug">{{ $this->selectedAppLine->description }}</p>
+                                </div>
+                                
+                                <div class="grid grid-cols-2 gap-3 pt-1">
+                                    <div>
+                                        <span class="text-[9px] uppercase font-bold tracking-wider text-[#43474f]/60">Procurement Mode</span>
+                                        <p class="text-xs font-bold text-[#001e40]">{{ $this->selectedAppLine->procurement_mode }}</p>
+                                    </div>
+                                    <div>
+                                        <span class="text-[9px] uppercase font-bold tracking-wider text-[#43474f]/60">Remaining Budget</span>
+                                        <p class="text-xs font-bold text-green-700">₱{{ number_format($this->selectedAppLine->approved_budget - $this->selectedAppLine->utilized_budget, 2) }}</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- History Section -->
+                        <div class="bg-white border border-[#eeedf2] rounded-2xl p-5 shadow-2xs space-y-4">
+                            <div class="flex items-center gap-2 border-b border-[#eeedf2] pb-3">
+                                <div class="w-8 h-8 rounded-lg bg-[#fffbe6] flex items-center justify-center text-[#d48806]">
+                                    <span class="material-symbols-outlined text-[18px]">history</span>
+                                </div>
+                                <div>
+                                    <h4 class="text-xs font-bold text-[#001e40] uppercase tracking-wider">Item Activity Log</h4>
+                                </div>
+                            </div>
+
+                            @if($this->recentItemHistory->isNotEmpty())
+                                <div class="space-y-4">
+                                    @foreach($this->recentItemHistory as $trackingNumber => $group)
+                                        @php
+                                            $first = $group->first();
+                                            $prDisplay = $first->pr_number ? "{$first->pr_number} ({$trackingNumber})" : $trackingNumber;
+                                        @endphp
+                                        <div x-data="{ expanded: false }" class="bg-[#f9f9fe] border border-[#eeedf2] rounded-xl text-xs shadow-2xs overflow-hidden">
+                                            <!-- Group Header: Tracking & Status -->
+                                            <div x-on:click="expanded = !expanded" class="p-3.5 flex items-start justify-between gap-3 cursor-pointer hover:bg-[#eeedf2]/40 transition-all select-none">
+                                                <div class="space-y-1 flex-1 min-w-0">
+                                                    <div class="flex items-center gap-1.5 font-bold text-[#001e40]">
+                                                        <span class="material-symbols-outlined text-[18px] text-[#001e40]/60 transition-transform duration-200 flex-shrink-0" :class="expanded ? 'rotate-180' : ''">expand_more</span>
+                                                        <span class="truncate">{{ $prDisplay }}</span>
+                                                    </div>
+                                                    <div class="text-[10px] text-[#43474f] leading-snug pl-6 mt-1">
+                                                        <span class="italic text-[#43474f]/80 block break-words">
+                                                            <strong class="text-[#43474f]/60 font-bold uppercase text-[8px] tracking-wider">Purpose:</strong> 
+                                                            {{ $first->overall_purpose ?: 'No purpose specified' }}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                                <div class="flex items-center gap-1.5 flex-shrink-0">
+                                                    <a href="{{ route('procurement.pr.pdf', $first->folder_id) }}" target="_blank" x-on:click.stop class="p-1 hover:bg-[#eeedf2] text-[#43474f] hover:text-[#001e40] rounded-lg transition-all flex items-center justify-center" title="View PR PDF">
+                                                        <span class="material-symbols-outlined text-[16px] text-red-600">picture_as_pdf</span>
+                                                    </a>
+                                                    <span class="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider
+                                                        {{ $first->status === 'APPROVED' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-blue-50 text-blue-700 border border-blue-200' }}">
+                                                        {{ $first->status }}
+                                                    </span>
+                                                </div>
+                                            </div>
+
+                                            <!-- Group Body (Collapsible) -->
+                                            <div x-show="expanded" x-cloak class="px-3.5 pb-3.5 space-y-3 pt-1 border-t border-[#eeedf2]/40" x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 -translate-y-2" x-transition:enter-end="opacity-100 translate-y-0">
+                                                <!-- Group Body: List of Items in the PR -->
+                                                <div class="space-y-2">
+                                                    @foreach($group as $item)
+                                                        <div class="bg-white p-2.5 rounded-lg border border-[#eeedf2]/60 space-y-1">
+                                                            <div class="font-medium text-[#001e40] leading-snug">{{ $item->item_desc }}</div>
+                                                            <div class="flex justify-between items-center text-[10px] text-[#43474f]/60 pt-0.5">
+                                                                <div>
+                                                                    Price: <span class="font-semibold text-[#001e40]">₱{{ number_format($item->unit_price, 2) }}</span>
+                                                                </div>
+                                                                <div>
+                                                                    Qty: <span class="font-bold text-[#001e40]">{{ $item->quantity }}</span>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    @endforeach
+                                                </div>
+                                            </div>
+                                        </div>
+                                    @endforeach
+                                </div>
+                            @else
+                                <div class="text-center py-6 text-xs text-[#43474f]/50 italic">
+                                    No recent PR activity for this item from your office.
+                                </div>
+                            @endif
+                        </div>
+                    @else
+                        <!-- Unselected sidebar placeholder -->
+                        <div class="bg-[#f9f9fe] border border-dashed border-[#c3c6d1] rounded-2xl p-8 text-center text-[#43474f]/50">
+                            <span class="material-symbols-outlined text-[36px] mb-2 block">ads_click</span>
+                            <p class="text-xs font-bold">Select an APP Catalog item to inspect details and recent office procurement history.</p>
+                        </div>
+                    @endif
                 </div>
             </div>
         @endif
 
         {{-- Step 2 UI --}}
         @if($currentStep === 2)
-            <div class="bg-white border border-[#c3c6d1] rounded-2xl p-8 shadow-sm space-y-6"
+            <div class="bg-white border border-[#c3c6d1] rounded-2xl p-8 shadow-sm mt-8 mb-6 space-y-4"
                  x-data="{
                     basket: $wire.entangle('basket'),
                     formatPrice(val) {
@@ -749,13 +1120,19 @@ new class extends Component
                             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <div>
                                     <label class="block text-[11px] font-bold uppercase tracking-wider text-[#43474f] mb-1.5">Recommended By <span class="text-[#ba1a1a]">*</span></label>
-                                    <x-form-select label="" placeholder="Select Recommending Officer..." icon="recommend" searchable wire:model="recommendedById" :options="$this->employeeOptions" />
+                                    <x-form-select label="" placeholder="Select Recommending Officer..." icon="recommend" searchable wire:model="recommendedById" :options="$this->validRecommenders->toArray()" />
+                                    @if($this->validRecommenders->isEmpty())
+                                        <p class="text-[10px] text-amber-600 mt-1 flex items-center gap-1"><span class="material-symbols-outlined text-[13px]">warning</span> No authorized recommenders configured in the Signatory Registry. Contact your system administrator.</p>
+                                    @endif
                                     @error('recommendedById') <p class="text-[11px] text-[#ba1a1a] mt-1">{{ $message }}</p> @enderror
                                 </div>
 
                                 <div>
                                     <label class="block text-[11px] font-bold uppercase tracking-wider text-[#43474f] mb-1.5">Approved By <span class="text-[#ba1a1a]">*</span></label>
-                                    <x-form-select label="" placeholder="Select Approving Officer..." icon="person_check" searchable wire:model="approvedById" :options="$this->employeeOptions" />
+                                    <x-form-select label="" placeholder="Select Approving Officer..." icon="person_check" searchable wire:model="approvedById" :options="$this->validApprovers->toArray()" />
+                                    @if($this->validApprovers->isEmpty())
+                                        <p class="text-[10px] text-amber-600 mt-1 flex items-center gap-1"><span class="material-symbols-outlined text-[13px]">warning</span> No authorized approving officers configured in the Signatory Registry. Contact your system administrator.</p>
+                                    @endif
                                     @error('approvedById') <p class="text-[11px] text-[#ba1a1a] mt-1">{{ $message }}</p> @enderror
                                 </div>
                             </div>
@@ -883,7 +1260,7 @@ new class extends Component
                                         <span class="material-symbols-outlined text-[18px]">receipt_long</span>
                                     </div>
                                     <div>
-                                        <h4 class="text-xs font-bold text-[#001e40] uppercase tracking-wider">Ad-hoc PR Summary</h4>
+                                        <h4 class="text-xs font-bold text-[#001e40] uppercase tracking-wider">PR Summary</h4>
                                     </div>
                                 </div>
 
@@ -923,10 +1300,10 @@ new class extends Component
 
         {{-- Step 3 UI --}}
         @if($currentStep === 3)
-            <div class="bg-white border border-[#c3c6d1] rounded-2xl p-8 shadow-sm space-y-6">
+            <div class="bg-white border border-[#c3c6d1] rounded-2xl space-y-4 p-8 shadow-sm mt-8 mb-6">
                 <div class="border-b border-[#eeedf2] pb-4 flex justify-between items-center">
                     <div>
-                        <h3 class="text-xl font-bold text-[#001e40]">Review Ad-hoc Purchase Request</h3>
+                        <h3 class="text-xl font-bold text-[#001e40]">Review Purchase Request</h3>
                         <p class="text-xs text-[#43474f] mt-1">Review the bundled items before final submission.</p>
                     </div>
                     <span class="px-3 py-1.5 bg-[#eeedf2] text-[#43474f] text-[10px] font-bold rounded-full uppercase tracking-wider">Unsubmitted Draft</span>
@@ -936,7 +1313,7 @@ new class extends Component
                     <div class="flex justify-between items-start">
                         <div class="space-y-1.5">
                             <p class="text-[10px] uppercase font-bold tracking-widest text-[#43474f]/50">PhilHealth AIM · Region X</p>
-                            <h4 class="text-lg font-bold text-[#001e40]">Ad-hoc PR Proposal</h4>
+                            <h4 class="text-lg font-bold text-[#001e40]">PR Proposal</h4>
                             @if($purpose)
                                 <p class="text-[12px] text-[#43474f] leading-relaxed max-w-2xl"><strong class="text-[#001e40]">Purpose:</strong> {{ $purpose }}</p>
                             @endif
@@ -1022,5 +1399,4 @@ new class extends Component
                 </div>
             </div>
         @endif
-    </div>
 </div>

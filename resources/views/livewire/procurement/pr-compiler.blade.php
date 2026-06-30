@@ -35,6 +35,13 @@ new class extends Component
             return;
         }
 
+        if ($folderId) {
+            $folder = \App\Models\ProcurementFolder::findOrFail($folderId);
+            if ($folder->status === 'CANCELLED' || $folder->status === 'CANCELLED_BY_USER') {
+                abort(403, 'Access Denied: This Purchase Request has been permanently archived and cannot be modified.');
+            }
+        }
+
         $this->resetState($folderId);
     }
 
@@ -402,6 +409,8 @@ new class extends Component
                     'recommended_by_designation'   => $recommendedEmployee->designation,
                     'approved_by_id'               => $this->approvedById,
                     'approved_by_designation'      => $approvedEmployee->designation,
+                    'office_id'                    => auth()->user()->office_id,
+                    'created_by_id'                => auth()->id(),
                 ]);
             } else {
                 // Create new folder
@@ -419,6 +428,8 @@ new class extends Component
                     'recommended_by_designation'   => $recommendedEmployee->designation,
                     'approved_by_id'               => $this->approvedById,
                     'approved_by_designation'      => $approvedEmployee->designation,
+                    'office_id'                    => auth()->user()->office_id,
+                    'created_by_id'                => auth()->id(),
                 ]);
             }
 
@@ -536,14 +547,7 @@ new class extends Component
 <div>
     <div class="space-y-5">
 
-        <!-- Top Back Bar -->
-        <div class="flex items-center">
-            <button x-on:click="$dispatch('close-pr-creation')" 
-                    class="inline-flex items-center gap-2 px-4 py-2 bg-white border border-[#c3c6d1] hover:border-[#001e40] text-[#43474f] hover:text-[#001e40] font-bold text-xs rounded-xl shadow-sm hover:shadow transition-all active:scale-95">
-                <span class="material-symbols-outlined text-[16px]">arrow_back</span>
-                Cancel & Exit to Registry
-            </button>
-        </div>
+
 
         <!-- Elegant Wizard Step Indicator -->
         <div class="bg-white border border-[#eeedf2] rounded-2xl p-5 shadow-2xs">
@@ -923,7 +927,7 @@ new class extends Component
 
         {{-- Step 2: PR Details --}}
         @if($currentStep === 2)
-            <div class="bg-white border border-[#c3c6d1] rounded-2xl p-8 shadow-sm space-y-6">
+            <div class="bg-white border border-[#c3c6d1] rounded-2xl p-8 shadow-sm space-y-6 mt-4 mb-6">
                 <div class="border-b border-[#eeedf2] pb-4">
                     <h3 class="text-xl font-bold text-[#001e40]">Enter Purchase Request Details</h3>
                     <p class="text-xs text-[#43474f] mt-1">Specify the official PR tracking number and operational purpose for this compiled bundle.</p>
@@ -1056,7 +1060,7 @@ new class extends Component
 
         {{-- Step 3: Signature & Generation Review --}}
         @if($currentStep === 3)
-            <div class="bg-white border border-[#c3c6d1] rounded-2xl p-8 shadow-sm space-y-6">
+            <div class="bg-white border border-[#c3c6d1] rounded-2xl p-8 shadow-sm space-y-6 mt-4 mb-6">
                 <div class="border-b border-[#eeedf2] pb-4 flex justify-between items-center">
                     <div>
                         <h3 class="text-xl font-bold text-[#001e40]">Review & Lock Document</h3>

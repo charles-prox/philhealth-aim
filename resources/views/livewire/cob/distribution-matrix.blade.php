@@ -158,7 +158,7 @@ new #[Layout('layouts.app')] class extends Component
         $office = Office::find($officeId);
         if (!$office) return [];
 
-        return Employee::where('office_division', $office->name)
+        return Employee::where('office_division', $office->acronym)
             ->where('employment_status', 'PERMANENT')
             ->orderBy('fullname')
             ->pluck('fullname', 'id')
@@ -176,7 +176,7 @@ new #[Layout('layouts.app')] class extends Component
         $office = Office::find($officeId);
         if (!$office) return [];
 
-        return Employee::where('office_division', $office->name)
+        return Employee::where('office_division', $office->acronym)
             ->whereIn('employment_status', ['CASUAL', 'JO'])
             ->orderBy('fullname')
             ->pluck('fullname', 'id')

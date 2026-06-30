@@ -9,6 +9,27 @@ class ProcurementFolder extends Model
 {
     use HasUuids;
 
+    protected static function booted()
+    {
+        static::updated(function ($folder) {
+            if (in_array($folder->status, ['DRAFT', 'CANCELLED', 'CANCELLED_BY_USER'])) {
+                $disk = \Illuminate\Support\Facades\Storage::disk('public');
+                if ($folder->pdf_attachment_path && $disk->exists($folder->pdf_attachment_path)) {
+                    $disk->delete($folder->pdf_attachment_path);
+                    $folder->quietly()->update(['pdf_attachment_path' => null]);
+                }
+                
+                $identifier = $folder->pr_number ?: $folder->tracking_number;
+                if ($identifier) {
+                    $dynamicPath = "pr/{$identifier}.pdf";
+                    if ($disk->exists($dynamicPath)) {
+                        $disk->delete($dynamicPath);
+                    }
+                }
+            }
+        });
+    }
+
     protected $fillable = [
         // Legacy columns (retained for backward compat)
         'tracking_number',
@@ -34,6 +55,9 @@ class ProcurementFolder extends Model
         'pr_number',
         'project_title',
         'procurement_method',
+        'office_id',
+        'created_by_id',
+        'pdf_attachment_path',
     ];
 
     protected $casts = [
@@ -105,5 +129,45 @@ class ProcurementFolder extends Model
         }
         
         return $prefix . str_pad($nextSeq, 5, '0', STR_PAD_LEFT);
+    }
+
+    public function cancelAndPurge(string $statusTarget): void
+    {
+        if (!in_array($statusTarget, ['CANCELLED', 'CANCELLED_BY_USER'])) {
+            throw new \InvalidArgumentException("Invalid cancellation status state.");
+        }
+
+        \DB::transaction(function () use ($statusTarget) {
+            // 1. Update folder status string (Preserves the row for COA sequential auditing)
+            $this->update(['status' => $statusTarget]);
+
+            // 2. Loop through items and run the budget rollback using your custom accessor
+            foreach ($this->prItems as $item) {
+                if ($item->appLineItem) {
+                    // Uses your mapped quantity accessor flawlessly
+                    $item->appLineItem->decrement(
+                        'utilized_budget', 
+                        ($item->quantity * $item->estimated_unit_cost)
+                    );
+                }
+            }
+
+            // 3. STORAGE PURGE: Destroy heavy file from local storage disk
+            $disk = \Illuminate\Support\Facades\Storage::disk('public');
+            
+            if ($this->pdf_attachment_path && $disk->exists($this->pdf_attachment_path)) {
+                $disk->delete($this->pdf_attachment_path);
+            }
+            
+            $identifier = $this->pr_number ?: $this->tracking_number;
+            if ($identifier) {
+                $dynamicPath = "pr/{$identifier}.pdf";
+                if ($disk->exists($dynamicPath)) {
+                    $disk->delete($dynamicPath);
+                }
+            }
+
+            $this->update(['pdf_attachment_path' => null]);
+        });
     }
 }

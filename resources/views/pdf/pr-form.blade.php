@@ -165,7 +165,6 @@
         }
         .sig-name {
             font-weight: bold;
-            text-decoration: underline;
             display: block;
             text-transform: uppercase;
         }
@@ -193,6 +192,25 @@
             white-space: nowrap;
         ">
             ROUTING REVIEW
+        </div>
+    @endif
+
+    @if(($folder->status ?? '') === 'DRAFT')
+        <div style="
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) rotate(-45deg);
+            font-size: 90px;
+            color: rgba(220, 38, 38, 0.12);
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 10px;
+            pointer-events: none;
+            z-index: 9999;
+            white-space: nowrap;
+        ">
+            DRAFT ONLY
         </div>
     @endif
 
@@ -332,6 +350,15 @@
                                 </tr>
                             @endforelse
 
+                            <tr style="height: 100px;">
+                                <td style="height: 100px;"></td>
+                                <td style="height: 100px;"></td>
+                                <td class="text-center" style="vertical-align: top; padding-top: 10px; font-weight: bold; height: 100px;">***Nothing Follows***</td>
+                                <td style="height: 100px;"></td>
+                                <td style="height: 100px;"></td>
+                                <td style="height: 100px;"></td>
+                            </tr>
+
                             <!-- {{-- Padding rows — 30 minimum to force a 2nd page for header/footer testing --}}
                             @for($i = count($folder->prItems); $i < max(1, 25 - count($folder->prItems)); $i++)
                                 <tr style="height: 22px;">
@@ -340,9 +367,9 @@
                             @endfor -->
 
                             <tr class="font-bold">
-                                <td colspan="3" class="text-right" style="padding-right: 15px;">TOTAL</td>
-                                <td class="text-center">{{ number_format($totalQty) }}</td>
-                                <td class="text-right">₱{{ number_format($totalUnitCost, 2) }}</td>
+                                <td colspan="3" class="text-left" style="padding-right: 15px;">TOTAL</td>
+                                <td></td>
+                                <td></td>
                                 <td class="text-right" style="font-size: 13px;">₱{{ number_format($totalCost, 2) }}</td>
                             </tr>
                             <tr>
@@ -352,8 +379,11 @@
                             </tr>
                             {{-- Purpose Row --}}
                             <tr>
-                                <td colspan="6" style="padding: 10px; text-align: left;">
-                                    <span class="font-bold">Purpose:</span> {{ $folder->overall_purpose }}
+                                <td colspan="1" style="padding: 10px; text-align: left; font-weight: bold; border-right: none !important;">
+                                    Purpose:
+                                </td>
+                                <td colspan="5" style="padding: 10px; text-align: left; border-left: none !important;">
+                                    {{ $folder->overall_purpose }}
                                 </td>
                             </tr>
                         </table>

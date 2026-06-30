@@ -25,6 +25,9 @@ new #[Layout('layouts.app')] class extends Component
     // Linking employee state
     public string $employeeSearch = '';
     public ?int $selectedEmpId = null;
+    
+    // Lineage Office state
+    public ?int $userOfficeId = null;
 
     public function mount(): void
     {
@@ -55,6 +58,7 @@ new #[Layout('layouts.app')] class extends Component
         $this->userRole = 'Procurement Officer';
         $this->selectedEmpId = null;
         $this->employeeSearch = '';
+        $this->userOfficeId = null;
         $this->showUserModal = true;
     }
 
@@ -71,6 +75,7 @@ new #[Layout('layouts.app')] class extends Component
         $this->userRole = $user->getRoleNames()->first() ?? 'Procurement Officer';
         $this->selectedEmpId = $user->employee_id;
         $this->employeeSearch = $user->employee?->fullname ?? '';
+        $this->userOfficeId = $user->office_id;
         $this->showUserModal = true;
     }
 
@@ -94,6 +99,7 @@ new #[Layout('layouts.app')] class extends Component
                 $this->editingUserId ? 'unique:users,email,' . $this->editingUserId : 'unique:users,email'
             ],
             'userRole' => ['required', 'string', 'exists:roles,name'],
+            'userOfficeId' => ['required', 'integer', 'exists:offices,id'],
         ];
 
         if (!$this->editingUserId) {
@@ -125,6 +131,7 @@ new #[Layout('layouts.app')] class extends Component
                     $user->password = Hash::make($this->userPassword);
                 }
                 $user->employee_id = $this->selectedEmpId;
+                $user->office_id = $this->userOfficeId;
                 $user->save();
 
                 $user->syncRoles($this->userRole);
@@ -136,6 +143,7 @@ new #[Layout('layouts.app')] class extends Component
                     'email' => $this->userEmail,
                     'password' => Hash::make($this->userPassword),
                     'employee_id' => $this->selectedEmpId,
+                    'office_id' => $this->userOfficeId,
                 ]);
 
                 $user->assignRole($this->userRole);
@@ -150,16 +158,23 @@ new #[Layout('layouts.app')] class extends Component
     {
         $this->selectedEmpId = $empId;
         $employee = Employee::find($empId);
-        if ($employee && !$this->editingUserId) {
-            // Only auto-fill if we are creating a new user
-            $this->userName = $employee->fullname;
-            
-            // Suggest professional email if currently blank
-            if (empty($this->userEmail)) {
-                $firstWord = explode(' ', $employee->fullname)[0] ?? '';
-                $cleanedName = strtolower(preg_replace('/[^a-zA-Z]/', '', $firstWord));
-                if ($cleanedName) {
-                    $this->userEmail = $cleanedName . '@philhealth.gov.ph';
+        if ($employee) {
+            $office = Office::where('acronym', $employee->office_division)->first();
+            if ($office) {
+                $this->userOfficeId = $office->id;
+            }
+
+            if (!$this->editingUserId) {
+                // Only auto-fill if we are creating a new user
+                $this->userName = $employee->fullname;
+                
+                // Suggest professional email if currently blank
+                if (empty($this->userEmail)) {
+                    $firstWord = explode(' ', $employee->fullname)[0] ?? '';
+                    $cleanedName = strtolower(preg_replace('/[^a-zA-Z]/', '', $firstWord));
+                    if ($cleanedName) {
+                        $this->userEmail = $cleanedName . '@philhealth.gov.ph';
+                    }
                 }
             }
         }
@@ -181,6 +196,27 @@ new #[Layout('layouts.app')] class extends Component
     public function systemRoles(): \Illuminate\Support\Collection
     {
         return \Spatie\Permission\Models\Role::orderBy('name')->pluck('name');
+    }
+
+    #[Computed]
+    public function hierarchicalOffices(): array
+    {
+        $divisions = Office::whereNull('parent_id')->orderBy('name')->get();
+        $list = [];
+
+        foreach ($divisions as $division) {
+            $list[$division->id] = $division->name . ($division->acronym ? " ({$division->acronym})" : "");
+            
+            foreach ($division->children()->orderBy('name')->get() as $section) {
+                $list[$section->id] = "  ├── " . $section->name . ($section->acronym ? " ({$section->acronym})" : "");
+                
+                foreach ($section->children()->orderBy('name')->get() as $unit) {
+                    $list[$unit->id] = "  │    ├── " . $unit->name . ($unit->acronym ? " ({$unit->acronym})" : "");
+                }
+            }
+        }
+
+        return $list;
     }
 
     public function with(): array
@@ -507,6 +543,19 @@ new #[Layout('layouts.app')] class extends Component
                                    class="w-full px-3 py-2 border border-[#c3c6d1] rounded-lg text-sm focus:ring-2 focus:ring-[#001e40] outline-none transition-all"/>
                             @error('userUsername') <span class="text-xs text-[#ba1a1a] font-bold mt-1 block">{{ $message }}</span> @enderror
                         </div>
+                    </div>
+
+                    {{-- Hierarchical Office Selector --}}
+                    <div>
+                        <label class="block text-[12px] font-bold text-[#001e40] uppercase tracking-wider mb-1">Office / Department Assignment</label>
+                        <select wire:model="userOfficeId" required
+                                class="w-full px-3 py-2 border border-[#c3c6d1] rounded-lg text-sm focus:ring-2 focus:ring-[#001e40] outline-none transition-all text-[#001e40]">
+                            <option value="">-- Select Office / Department --</option>
+                            @foreach($this->hierarchicalOffices as $oId => $formattedName)
+                                <option value="{{ $oId }}">{{ $formattedName }}</option>
+                            @endforeach
+                        </select>
+                        @error('userOfficeId') <span class="text-xs text-[#ba1a1a] font-bold mt-1 block">{{ $message }}</span> @enderror
                     </div>
 
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
