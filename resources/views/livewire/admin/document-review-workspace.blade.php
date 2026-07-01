@@ -1,0 +1,393 @@
+<?php
+
+use Livewire\Volt\Component;
+use App\Models\ApprovalTask;
+use Livewire\Attributes\Layout;
+
+new #[Layout('layouts.app')] class extends Component
+{
+    public ApprovalTask $task;
+    public $rejectionType = ''; // 'EDIT', 'COMPLIANCE', 'PERMANENT'
+    public $rejectionRemarks = '';
+    public int $activeTab = 0;
+
+    public function mount($taskId)
+    {
+        $employeeId = auth()->user()->employee_id;
+        if (!$employeeId || !\App\Models\SignatoryRegistry::isEmployeeSignatory($employeeId)) {
+            abort(403, "Access Denied: You are not registered in the Signatory Matrix.");
+        }
+
+        $this->task = ApprovalTask::findOrFail($taskId);
+
+        // Security Guard: Check if the logged in user is the target signatory
+        if ($this->task->target_employee_id !== $employeeId) {
+            abort(403, "Unauthorized: You are not the assigned signatory for this document task.");
+        }
+
+        // Anti-Bypass Guard: Enforce time entry logging immediately upon mounting the viewport
+        if (is_null($this->task->viewed_at)) {
+            $this->task->update([
+                'viewed_at' => now(),
+                'viewed_by_employee_id' => auth()->user()->employee_id
+            ]);
+        }
+    }
+
+    public function executeApprovalSignature()
+    {
+        // Ultimate Safety Check: Ensure structural loading was not skipped
+        if (is_null($this->task->viewed_at)) {
+            throw new \Exception("Security Exception: Document validation context must be verified before sign-off.");
+        }
+
+        if ($this->task->status !== 'PENDING') {
+            session()->flash('error', "This task has already been processed.");
+            return $this->redirectRoute('admin.unified-desk');
+        }
+
+        \DB::transaction(function () {
+            $document = $this->task->document;
+            
+            // Execute the model's interface method to stamp the signature footprint
+            $document->applySignature(auth()->user()->employee_id);
+            
+            $this->task->update(['status' => 'SIGNED']);
+        });
+
+        session()->flash('success', "Document {$this->task->tracking_number} signed successfully.");
+        return $this->redirectRoute('admin.unified-desk');
+    }
+
+    public function submitDocumentRejection()
+    {
+        $this->validate([
+            'rejectionType'    => 'required|in:EDIT,COMPLIANCE,PERMANENT',
+            'rejectionRemarks' => 'required|string|min:10|max:1000',
+        ], [
+            'rejectionRemarks.required' => 'Operational Rule: You must provide clear explanatory remarks for a document return.',
+            'rejectionRemarks.min' => 'Please provide comprehensive notes (min 10 characters) so the user knows how to achieve compliance.'
+        ]);
+
+        if ($this->task->status !== 'PENDING') {
+            session()->flash('error', "This task has already been processed.");
+            return $this->redirectRoute('admin.unified-desk');
+        }
+
+        \DB::transaction(function () {
+            $document = $this->task->document;
+            $creatorId = $document->created_by_id;
+
+            switch ($this->rejectionType) {
+                case 'EDIT':
+                    // Soft Return: Fields unlock entirely for structural modifications
+                    $document->update([
+                        'status' => 'RETURNED_FOR_EDIT',
+                        'current_signatory_id' => $creatorId
+                    ]);
+                    break;
+
+                case 'COMPLIANCE':
+                    // Compliance Return: Core text inputs lock down, file upload streams activate
+                    $document->update([
+                        'status' => 'RETURNED_FOR_COMPLIANCE',
+                        'current_signatory_id' => $creatorId
+                    ]);
+                    break;
+
+                case 'PERMANENT':
+                    // Hard Rejection: Document lifecycle terminates permanently
+                    $document->update([
+                        'status' => 'REJECTED',
+                        'current_signatory_id' => null
+                    ]);
+
+                    // AUTOMATED BUDGET REVERSAL ROUTINE
+                    if (method_exists($document, 'prItems')) {
+                        foreach ($document->prItems as $item) {
+                            if ($item->appLineItem) {
+                                $item->appLineItem->decrement(
+                                    'utilized_budget', 
+                                    ($item->quantity * $item->estimated_unit_cost)
+                                );
+                            }
+                        }
+                    }
+                    break;
+            }
+
+            // Close out the approval task row entry
+            $this->task->update(['status' => 'REJECTED']);
+
+            // Write a permanent tracking log entry
+            $document->logs()->create([
+                'action' => 'DOCUMENT_REJECTION_' . $this->rejectionType,
+                'actor_id' => auth()->user()->employee_id,
+                'remarks' => $this->rejectionRemarks,
+                'created_at' => now(),
+            ]);
+
+            // Dispatch immediate notification banner to the end-user
+            if ($document->creator) {
+                $document->creator->notify(new \App\Notifications\DocumentReturnedNotification([
+                    'tracking_number' => $document->pr_number ?: $document->tracking_number,
+                    'type'            => $this->rejectionType,
+                    'remarks'         => $this->rejectionRemarks,
+                    'officer_name'    => auth()->user()->employee->fullname
+                ]));
+            }
+        });
+
+        session()->flash('success', 'Document processing completed. Record pushed back to the originator.');
+        return $this->redirectRoute('admin.unified-desk');
+    }
+}; ?>
+
+<div class="p-gutter space-y-6">
+    @section('header_title', 'Document Workspace')
+
+    {{-- Breadcrumb / Header --}}
+    <div class="flex items-center justify-between">
+        <a href="{{ route('admin.unified-desk') }}" class="inline-flex items-center gap-1.5 text-xs text-[#001e40] font-bold hover:underline">
+            <span class="material-symbols-outlined text-sm">arrow_back</span>
+            Back to Approval Desk
+        </a>
+        <span class="text-xs text-[#43474f] font-mono">TASK-ID: #{{ $task->id }}</span>
+    </div>
+
+    {{-- Split-Screen Workspace Grid --}}
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-gutter items-start">
+        
+        {{-- LEFT PANEL: Document Review Viewport (col-span-2) --}}
+        <div class="lg:col-span-2 space-y-6">
+            
+            {{-- Dynamic Tabbed Viewport Box --}}
+            <div class="bg-white border border-[#c3c6d1] rounded-2xl shadow-sm overflow-hidden flex flex-col h-[600px] mb-6">
+                <!-- Navigation Tabs Strip -->
+                <div class="flex border-b border-[#eeedf2] bg-[#f9f9fe] p-2 gap-2 overflow-x-auto custom-scrollbar">
+                    @foreach($task->document->attachments as $index => $attach)
+                        <button wire:click="$set('activeTab', {{ $index }})" 
+                                class="px-3.5 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 shrink-0 {{ $activeTab == $index ? 'bg-[#001e40] text-white shadow-sm' : 'hover:bg-[#eeedf2] text-[#43474f] hover:text-[#001e40]' }}">
+                            <span class="material-symbols-outlined text-[16px]">
+                                {{ str_starts_with($attach->attachment_type, 'SYSTEM_') ? 'auto_stories' : 'description' }}
+                            </span>
+                            <span>{{ str_replace('SYSTEM_', '', $attach->attachment_type) }}</span>
+                        </button>
+                    @endforeach
+                </div>
+
+                <!-- Live Document Active Viewport Panel -->
+                <div class="flex-1 w-full bg-white relative">
+                    @if(isset($task->document->attachments[$activeTab]))
+                        <iframe src="{{ route('admin.file-stream', $task->document->attachments[$activeTab]->id) }}" 
+                                class="w-full h-full border-0 absolute inset-0" 
+                                loading="lazy"></iframe>
+                    @else
+                        <div class="flex flex-col items-center justify-center h-full text-xs text-[#43474f]/50 italic gap-2">
+                            <span class="material-symbols-outlined text-[36px] text-[#c3c6d1]">find_in_page</span>
+                            <span>No compliance documents compiled yet for this request.</span>
+                        </div>
+                    @endif
+                </div>
+            </div>
+
+            {{-- Line Items Table Card --}}
+            <div class="bg-white border border-[#c3c6d1] rounded-2xl shadow-sm overflow-hidden">
+                <div class="p-gutter border-b border-[#c3c6d1] bg-[#f9f9fe]">
+                    <h3 class="font-bold text-sm text-[#001e40]">Procurement Line Items Review</h3>
+                </div>
+                <div class="overflow-x-auto custom-scrollbar">
+                    <table class="w-full border-collapse text-left bg-white text-xs">
+                        <thead>
+                            <tr class="bg-[#eeedf2] border-b border-[#c3c6d1] font-bold text-[#001e40] uppercase tracking-wider">
+                                <th class="p-3">Description</th>
+                                <th class="p-3 text-center">Qty</th>
+                                <th class="p-3">Unit</th>
+                                <th class="p-3 text-right">Est. Unit Cost</th>
+                                <th class="p-3 text-right">Est. Total Cost</th>
+                                <th class="p-3 text-center">Type</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-[#c3c6d1] text-[#1a1c1f]">
+                            @php $grandTotal = 0; @endphp
+                            @forelse($task->document->prItems as $item)
+                                @php $grandTotal += $item->estimated_total_cost; @endphp
+                                <tr class="hover:bg-[#f4f3f8] transition-colors">
+                                    <td class="p-3 font-medium whitespace-normal max-w-xs">{{ $item->item_description_override }}</td>
+                                    <td class="p-3 text-center font-mono">{{ $item->total_qty }}</td>
+                                    <td class="p-3 text-[#43474f]">{{ $item->unit }}</td>
+                                    <td class="p-3 text-right font-mono">₱{{ number_format($item->estimated_unit_cost, 2) }}</td>
+                                    <td class="p-3 text-right font-mono font-bold">₱{{ number_format($item->estimated_total_cost, 2) }}</td>
+                                    <td class="p-3 text-center">
+                                        <span class="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold {{ $item->accountability_type === 'PAR' ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-blue-50 text-blue-700 border border-blue-200' }}">
+                                            {{ $item->accountability_type }}
+                                        </span>
+                                    </td>
+                                </tr>
+                            @empty
+                                <tr>
+                                    <td colspan="6" class="p-8 text-center text-[#43474f]/60 italic">No line items attached to this folder.</td>
+                                </tr>
+                            @endforelse
+                        </tbody>
+                        <tfoot>
+                            <tr class="bg-[#f9f9fe] font-bold text-sm text-[#001e40] border-t-2 border-[#c3c6d1]">
+                                <td colspan="4" class="p-3 text-right uppercase tracking-wider">Estimated Grand Total:</td>
+                                <td class="p-3 text-right font-mono font-bold text-emerald-800">₱{{ number_format($grandTotal, 2) }}</td>
+                                <td></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
+
+            {{-- Audit Timeline Log --}}
+            <div class="bg-white p-6 border border-[#c3c6d1] rounded-2xl shadow-sm space-y-4">
+                <h3 class="font-bold text-sm text-[#001e40] border-b border-[#eeedf2] pb-2">Document Audit Timeline</h3>
+                <div class="space-y-4">
+                    @forelse($task->document->logs as $log)
+                        <div class="flex items-start gap-3 text-xs">
+                            <div class="mt-0.5">
+                                <span class="material-symbols-outlined text-[16px] text-[#43474f]">history</span>
+                            </div>
+                            <div class="flex-1">
+                                <p class="font-bold text-[#1a1c1f]">
+                                    {{ str_replace('_', ' ', $log->action) }} 
+                                    <span class="font-medium text-[#43474f]">by {{ $log->actor?->fullname ?? 'System' }}</span>
+                                </p>
+                                @if($log->remarks)
+                                    <p class="text-[#43474f] italic mt-0.5">"{{ $log->remarks }}"</p>
+                                @endif
+                                <span class="text-[9px] text-[#43474f]/60">{{ $log->created_at->format('M d, Y h:i A') }}</span>
+                            </div>
+                        </div>
+                    @empty
+                        <p class="text-xs text-[#43474f]/60 italic">No historical timeline records found.</p>
+                    @endforelse
+                </div>
+            </div>
+
+        </div>
+        
+        {{-- RIGHT PANEL: Action Execution Sidebar (col-span-1) --}}
+        <div class="lg:col-span-1 space-y-6">
+            
+            {{-- Sign Off Action Card --}}
+            <div class="bg-white border border-[#c3c6d1] rounded-2xl shadow-sm overflow-hidden">
+                <div class="p-gutter border-b border-[#c3c6d1] bg-[#f9f9fe]">
+                    <h3 class="font-bold text-sm text-[#001e40]">Action Execution Panel</h3>
+                </div>
+                
+                <div class="p-6 space-y-6">
+                    @if($task->status === 'PENDING')
+                        {{-- Approve Segment --}}
+                        <div class="space-y-3">
+                            <div class="p-3 bg-emerald-50 text-emerald-800 rounded-xl border border-emerald-200 text-xs leading-relaxed">
+                                <span class="font-bold flex items-center gap-1">
+                                    <span class="material-symbols-outlined text-[16px]">verified</span> Verify Context
+                                </span>
+                                Under penalty of audit rules, confirming below stamps your digital signature credentials on this procurement document.
+                            </div>
+                            
+                            <button wire:click="executeApprovalSignature" 
+                                    class="w-full flex items-center justify-center gap-2 bg-[#001e40] hover:bg-[#003272] text-white font-bold py-3 px-4 rounded-xl shadow-md transition-all active:scale-95 text-sm">
+                                <span class="material-symbols-outlined">draw</span>
+                                Approve & Sign Document
+                            </button>
+                        </div>
+
+                        {{-- Rejection Segment --}}
+                        <div class="border-t border-[#eeedf2] pt-6 space-y-4">
+                            <h4 class="font-bold text-xs text-[#ba1a1a] uppercase tracking-wider">3-Tier Rejection Engine</h4>
+                            
+                            <div class="space-y-3 text-xs">
+                                {{-- Radio Type Option 1 --}}
+                                <label class="flex items-start gap-2.5 p-2.5 rounded-lg border border-[#c3c6d1] hover:bg-[#f4f3f8] cursor-pointer transition-colors">
+                                    <input type="radio" wire:model.live="rejectionType" value="EDIT" class="mt-0.5 text-[#ba1a1a] focus:ring-[#ba1a1a]">
+                                    <div>
+                                        <p class="font-bold text-[#1a1c1f]">Soft Return (Returned for Edit)</p>
+                                        <p class="text-[10px] text-[#43474f] mt-0.5">Unlocks all fields for text/item editing. Stays with original creator.</p>
+                                    </div>
+                                </label>
+
+                                {{-- Radio Type Option 2 --}}
+                                <label class="flex items-start gap-2.5 p-2.5 rounded-lg border border-[#c3c6d1] hover:bg-[#f4f3f8] cursor-pointer transition-colors">
+                                    <input type="radio" wire:model.live="rejectionType" value="COMPLIANCE" class="mt-0.5 text-[#ba1a1a] focus:ring-[#ba1a1a]">
+                                    <div>
+                                        <p class="font-bold text-[#1a1c1f]">Compliance Return</p>
+                                        <p class="text-[10px] text-[#43474f] mt-0.5">Locks form inputs, opens only the attachment upload stream for corrections.</p>
+                                    </div>
+                                </label>
+
+                                {{-- Radio Type Option 3 --}}
+                                <label class="flex items-start gap-2.5 p-2.5 rounded-lg border border-[#c3c6d1] hover:bg-[#f4f3f8] cursor-pointer transition-colors">
+                                    <input type="radio" wire:model.live="rejectionType" value="PERMANENT" class="mt-0.5 text-[#ba1a1a] focus:ring-[#ba1a1a]">
+                                    <div>
+                                        <p class="font-bold text-[#ba1a1a]">Permanent Rejection (Purge)</p>
+                                        <p class="text-[10px] text-[#43474f] mt-0.5">Terminates lifecycle. Reverts utilized budget back to the APP matrix line item.</p>
+                                    </div>
+                                </label>
+                            </div>
+
+                            {{-- Rejection Comments --}}
+                            <div class="space-y-1.5">
+                                <label class="text-xs font-bold text-[#43474f]">Explanatory Remarks <span class="text-red-600">*</span></label>
+                                <textarea wire:model="rejectionRemarks" rows="4" 
+                                          class="w-full text-xs p-3 border border-[#c3c6d1] rounded-xl focus:border-[#ba1a1a] focus:ring-[#ba1a1a] placeholder-gray-400"
+                                          placeholder="Provide clear compliance explanations (min 10 characters)..."></textarea>
+                                @error('rejectionRemarks') <span class="text-[10px] font-bold text-[#ba1a1a] mt-0.5 block">{{ $message }}</span> @enderror
+                                @error('rejectionType') <span class="text-[10px] font-bold text-[#ba1a1a] mt-0.5 block">{{ $message }}</span> @enderror
+                            </div>
+
+                            <button wire:click="submitDocumentRejection"
+                                    class="w-full flex items-center justify-center gap-1.5 bg-[#ba1a1a] hover:bg-[#93000a] text-white font-bold py-2.5 px-4 rounded-xl shadow-md transition-all active:scale-95 text-xs">
+                                <span class="material-symbols-outlined text-[16px]">assignment_return</span>
+                                Submit Rejection / Return
+                            </button>
+                        </div>
+                    @else
+                        {{-- Task Already Processed --}}
+                        <div class="text-center py-6 space-y-4">
+                            @if($task->status === 'SIGNED')
+                                <div class="w-16 h-16 rounded-full bg-green-50 text-green-700 flex items-center justify-center mx-auto shadow-inner">
+                                    <span class="material-symbols-outlined text-[36px]">verified</span>
+                                </div>
+                                <div>
+                                    <h4 class="font-bold text-sm text-[#001e40]">Document Signed</h4>
+                                    <p class="text-xs text-[#43474f] mt-1">This task was approved and signed off.</p>
+                                    <p class="text-[10px] font-mono text-[#43474f]/70 mt-2">Processed: {{ $task->updated_at->format('M d, Y h:i A') }}</p>
+                                </div>
+                            @else
+                                <div class="w-16 h-16 rounded-full bg-red-50 text-red-700 flex items-center justify-center mx-auto shadow-inner">
+                                    <span class="material-symbols-outlined text-[36px]">assignment_return</span>
+                                </div>
+                                <div>
+                                    <h4 class="font-bold text-sm text-[#ba1a1a]">Document Rejected</h4>
+                                    <p class="text-xs text-[#43474f] mt-1">This task was rejected/returned.</p>
+                                    <p class="text-[10px] font-mono text-[#43474f]/70 mt-2">Processed: {{ $task->updated_at->format('M d, Y h:i A') }}</p>
+                                </div>
+                            @endif
+                            <a href="{{ route('admin.unified-desk') }}" class="inline-flex items-center gap-1 bg-[#eeedf2] hover:bg-[#c3c6d1] text-[#001e40] text-xs font-bold px-4 py-2 rounded-xl transition-all">
+                                Return to Desk
+                            </a>
+                        </div>
+                    @endif
+                </div>
+            </div>
+
+            {{-- Audit Compliance Info --}}
+            <div class="bg-white p-6 border border-[#c3c6d1] rounded-2xl shadow-sm text-xs space-y-3">
+                <h4 class="font-bold text-[#001e40] flex items-center gap-1 border-b border-[#eeedf2] pb-1.5">
+                    <span class="material-symbols-outlined text-sm">gavel</span>
+                    COA Internal Controls
+                </h4>
+                <div class="space-y-2 text-[#43474f] leading-relaxed">
+                    <p>1. <strong>Strict Viewport Audit:</strong> Reviewers must open this viewport to verify document context before signatures can be digitally verified. Bypasses will be auto-flagged.</p>
+                    <p>2. <strong>Rollback Transparency:</strong> Permanent rejections release all matching line items' reserved values back into the divisional APP budget automatically.</p>
+                </div>
+            </div>
+
+        </div>
+
+    </div>
+</div>

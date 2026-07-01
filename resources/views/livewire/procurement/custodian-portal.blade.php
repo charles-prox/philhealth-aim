@@ -277,7 +277,7 @@ new #[Layout('layouts.app')] class extends Component
         $employeeId = $employee?->id;
         $isAdmin = $user->hasRole('Admin');
 
-        $query = ProcurementFolder::with(['purchaseOrder', 'prItems']);
+        $query = ProcurementFolder::with(['purchaseOrder', 'prItems', 'currentSignatory']);
 
         // Enforce RBAC Database Scoping
         if (!$isAdmin) {
@@ -440,7 +440,7 @@ new #[Layout('layouts.app')] class extends Component
                                         ];
                                         $color = $statusColors[$folder->status] ?? 'bg-gray-100 text-gray-800';
                                     @endphp
-                                    <span class="px-3 py-1 rounded-full text-[10px] font-bold uppercase {{ $color }}">{{ str_replace('_', ' ', $folder->status) }}</span>
+                                    <span class="px-3 py-1 rounded-full text-[10px] font-bold uppercase {{ $color }}">{{ $folder->status_label }}</span>
                                 </td>
                                 <td class="p-table-cell-padding text-right">
                                     <div class="relative inline-block text-left" x-data="{ open: false, coords: { top: 0, left: 0 } }">

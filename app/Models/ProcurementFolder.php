@@ -11,6 +11,20 @@ class ProcurementFolder extends Model
 
     protected static function booted()
     {
+        static::saving(function ($folder) {
+            if ($folder->status === 'ROUTING') {
+                if (empty($folder->recommended_signed_at)) {
+                    $folder->current_signatory_id = $folder->recommended_by_id;
+                } elseif (empty($folder->approved_signed_at)) {
+                    $folder->current_signatory_id = $folder->approved_by_id;
+                } else {
+                    $folder->current_signatory_id = null;
+                }
+            } else {
+                $folder->current_signatory_id = null;
+            }
+        });
+
         static::updated(function ($folder) {
             if (in_array($folder->status, ['DRAFT', 'CANCELLED', 'CANCELLED_BY_USER'])) {
                 $disk = \Illuminate\Support\Facades\Storage::disk('public');
@@ -28,6 +42,68 @@ class ProcurementFolder extends Model
                 }
             }
         });
+
+        static::saved(function ($folder) {
+            if ($folder->status === 'ROUTING') {
+                $targetId = $folder->current_signatory_id;
+                if ($targetId) {
+                    $pendingTask = \App\Models\ApprovalTask::where([
+                        'document_type' => get_class($folder),
+                        'document_id' => $folder->id,
+                        'status' => 'PENDING',
+                    ])->first();
+
+                    if ($pendingTask) {
+                        if ($pendingTask->target_employee_id !== $targetId) {
+                            $pendingTask->update(['status' => 'BYPASSED']);
+                            
+                            \App\Models\ApprovalTask::create([
+                                'target_employee_id' => $targetId,
+                                'document_type'      => get_class($folder),
+                                'document_id'        => $folder->id,
+                                'tracking_number'    => $folder->pr_number ?: $folder->tracking_number,
+                                'document_label'     => 'Purchase Request',
+                                'originating_office' => $folder->requesting_unit ?? 'Unknown',
+                                'status'             => 'PENDING',
+                            ]);
+                        }
+                    } else {
+                        \App\Models\ApprovalTask::create([
+                            'target_employee_id' => $targetId,
+                            'document_type'      => get_class($folder),
+                            'document_id'        => $folder->id,
+                            'tracking_number'    => $folder->pr_number ?: $folder->tracking_number,
+                            'document_label'     => 'Purchase Request',
+                            'originating_office' => $folder->requesting_unit ?? 'Unknown',
+                            'status'             => 'PENDING',
+                        ]);
+                    }
+                }
+            } else {
+                $taskStatus = $folder->status === 'APPROVED' ? 'SIGNED' : 'REJECTED';
+                
+                if (in_array($folder->status, ['DRAFT', 'CANCELLED', 'CANCELLED_BY_USER', 'RETURNED_FOR_EDIT', 'RETURNED_FOR_COMPLIANCE'])) {
+                    $taskStatus = 'REJECTED';
+                }
+
+                \App\Models\ApprovalTask::where([
+                    'document_type' => get_class($folder),
+                    'document_id' => $folder->id,
+                    'status' => 'PENDING',
+                ])->update(['status' => $taskStatus]);
+            }
+        });
+
+        static::created(function ($folder) {
+            \Illuminate\Support\Facades\DB::afterCommit(function () use ($folder) {
+                \App\Jobs\GenerateProcurementDocumentsJob::dispatch($folder);
+            });
+        });
+    }
+
+    public function attachments()
+    {
+        return $this->hasMany(ProcurementAttachment::class, 'procurement_folder_id');
     }
 
     protected $fillable = [
@@ -58,6 +134,7 @@ class ProcurementFolder extends Model
         'office_id',
         'created_by_id',
         'pdf_attachment_path',
+        'current_signatory_id',
     ];
 
     protected $casts = [
@@ -102,6 +179,69 @@ class ProcurementFolder extends Model
     public function recommendedBy()
     {
         return $this->belongsTo(Employee::class, 'recommended_by_id');
+    }
+
+    public function currentSignatory()
+    {
+        return $this->belongsTo(Employee::class, 'current_signatory_id');
+    }
+
+    public function office()
+    {
+        return $this->belongsTo(Office::class, 'office_id');
+    }
+
+    public function creator()
+    {
+        return $this->belongsTo(User::class, 'created_by_id');
+    }
+
+    public function getStatusLabelAttribute(): string
+    {
+        if ($this->status === 'ROUTING') {
+            if (empty($this->recommended_signed_at)) {
+                $name = $this->currentSignatory?->fullname ?? 'Recommender';
+                return "Pending Recommendation — {$name}";
+            } else {
+                $name = $this->currentSignatory?->fullname ?? 'Approver';
+                return "Pending Approval — {$name}";
+            }
+        }
+        return $this->status === 'SUBMITTED_TO_GSU' ? 'TRIAGE' : str_replace('_', ' ', $this->status);
+    }
+
+    public function applySignature(int $employeeId): void
+    {
+        if ($this->current_signatory_id !== $employeeId) {
+            throw new \Exception("Security Exception: You are not the active signatory for this document.");
+        }
+
+        if (empty($this->recommended_signed_at)) {
+            $this->update([
+                'recommended_signed_at' => now(),
+            ]);
+
+            \App\Models\ProcurementLog::create([
+                'procurement_folder_id' => $this->id,
+                'action' => 'RECOMMENDED',
+                'actor_id' => $employeeId,
+                'remarks' => 'PR recommended via Unified Approval Desk.',
+                'created_at' => now(),
+            ]);
+        } elseif (empty($this->approved_signed_at)) {
+            $this->update([
+                'status' => 'APPROVED',
+                'approved_signed_at' => now(),
+            ]);
+
+            \App\Models\ProcurementLog::create([
+                'procurement_folder_id' => $this->id,
+                'action' => 'APPROVED',
+                'actor_id' => $employeeId,
+                'remarks' => 'PR approved via Unified Approval Desk.',
+                'created_at' => now(),
+            ]);
+        }
     }
 
     public function logs()

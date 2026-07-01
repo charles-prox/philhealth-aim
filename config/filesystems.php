@@ -60,6 +60,12 @@ return [
             'report' => false,
         ],
 
+        'secure_procurement' => [
+            'driver' => 'local',
+            'root' => storage_path('app/secure/procurement'),
+            'throw' => false,
+        ],
+
     ],
 
     /*

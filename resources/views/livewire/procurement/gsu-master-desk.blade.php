@@ -204,8 +204,8 @@ new #[Layout('layouts.app')] class extends Component
         }
 
         DB::transaction(function () use ($folder, $actor) {
-            $isRecommender = $folder->recommended_by_id === $actor->id;
-            $isApprover = $folder->approved_by_id === $actor->id;
+            $isRecommender = $folder->current_signatory_id === $actor->id && !$folder->recommended_signed_at;
+            $isApprover = $folder->current_signatory_id === $actor->id && $folder->recommended_signed_at;
 
             $updates = [];
             $action = '';
@@ -504,7 +504,7 @@ new #[Layout('layouts.app')] class extends Component
         $isAdmin = $user->hasRole('Admin');
         $isProcurementOfficer = $user->hasRole('Procurement Officer');
 
-        $query = ProcurementFolder::with(['purchaseOrder', 'prItems']);
+        $query = ProcurementFolder::with(['purchaseOrder', 'prItems', 'currentSignatory']);
 
         // Scoping for Procurement Officers (who are not Admins)
         if (!$isAdmin && $isProcurementOfficer) {
@@ -748,7 +748,7 @@ new #[Layout('layouts.app')] class extends Component
                                         ];
                                         $color = $statusColors[$folder->status] ?? 'bg-gray-100 text-gray-800';
                                     @endphp
-                                    <span class="px-3 py-1 rounded-full text-[10px] font-bold uppercase {{ $color }}">{{ $folder->status === 'SUBMITTED_TO_GSU' ? 'TRIAGE' : str_replace('_', ' ', $folder->status) }}</span>
+                                    <span class="px-3 py-1 rounded-full text-[10px] font-bold uppercase {{ $color }}">{{ $folder->status_label }}</span>
                                 </td>
                                 <td class="p-table-cell-padding">
                                     @php 

@@ -159,7 +159,7 @@ new #[Layout('layouts.app')] class extends Component
         $this->selectedEmpId = $empId;
         $employee = Employee::find($empId);
         if ($employee) {
-            $office = Office::where('acronym', $employee->office_division)->first();
+            $office = \App\Models\Office::where('acronym', $employee->office_division)->first();
             if ($office) {
                 $this->userOfficeId = $office->id;
             }
@@ -201,28 +201,19 @@ new #[Layout('layouts.app')] class extends Component
     #[Computed]
     public function hierarchicalOffices(): array
     {
-        $divisions = Office::whereNull('parent_id')->orderBy('name')->get();
-        $list = [];
-
-        foreach ($divisions as $division) {
-            $list[$division->id] = $division->name . ($division->acronym ? " ({$division->acronym})" : "");
-            
-            foreach ($division->children()->orderBy('name')->get() as $section) {
-                $list[$section->id] = "  ├── " . $section->name . ($section->acronym ? " ({$section->acronym})" : "");
-                
-                foreach ($section->children()->orderBy('name')->get() as $unit) {
-                    $list[$unit->id] = "  │    ├── " . $unit->name . ($unit->acronym ? " ({$unit->acronym})" : "");
-                }
-            }
-        }
-
-        return $list;
+        return \App\Models\Office::orderBy('name')
+            ->get()
+            ->mapWithKeys(function ($office) {
+                $label = $office->name . ($office->acronym ? " ({$office->acronym})" : "");
+                return [$office->id => $label];
+            })
+            ->toArray();
     }
 
     public function with(): array
     {
         return [
-            'users'         => User::with('employee')
+            'users'         => User::with(['employee', 'office'])
                 ->when($this->search, fn($q) => $q
                     ->where(fn($sub) => $sub
                         ->where(DB::raw('LOWER(name)'), 'like', '%' . strtolower($this->search) . '%')
@@ -321,7 +312,7 @@ new #[Layout('layouts.app')] class extends Component
                         <th class="p-table-cell-padding text-[12px] font-bold text-[#001e40] uppercase tracking-wider">User</th>
                         <th class="p-table-cell-padding text-[12px] font-bold text-[#001e40] uppercase tracking-wider">Username</th>
                         <th class="p-table-cell-padding text-[12px] font-bold text-[#001e40] uppercase tracking-wider">Role</th>
-                        <th class="p-table-cell-padding text-[12px] font-bold text-[#001e40] uppercase tracking-wider">HR Employee</th>
+                        <th class="p-table-cell-padding text-[12px] font-bold text-[#001e40] uppercase tracking-wider">Office / Department</th>
                         <th class="p-table-cell-padding text-[12px] font-bold text-[#001e40] uppercase tracking-wider">2FA</th>
                         <th class="p-table-cell-padding text-[12px] font-bold text-[#001e40] uppercase tracking-wider text-right">Actions</th>
                     </tr>
@@ -342,6 +333,7 @@ new #[Layout('layouts.app')] class extends Component
                                 'Auditor'             => 'bg-[#d8e1ea] text-[#2c3135]',
                                 'Document custodian'  => 'bg-[#e8f0fe] text-[#1a73e8]',
                                 'Office Head'         => 'bg-[#f3e8ff] text-[#6b21a8]',
+                                'Regional Vice President' => 'bg-[#ffdcc0] text-[#301400]',
                             ];
                             $roleClass = $roleColors[$role] ?? 'bg-[#eeedf2] text-[#43474f]';
                         @endphp
@@ -354,7 +346,7 @@ new #[Layout('layouts.app')] class extends Component
                                     </div>
                                     <div class="flex flex-col">
                                         <span class="font-bold text-[#001e40]">{{ $user->name }}</span>
-                                        <span class="text-[11px] text-[#43474f]">{{ $user->email ?? '—' }}</span>
+                                        <span class="text-[11px] text-[#43474f]">{{ $user->employee?->designation ?? ($user->email ?? '—') }}</span>
                                     </div>
                                 </div>
                             </td>
@@ -368,19 +360,19 @@ new #[Layout('layouts.app')] class extends Component
                                     {{ $role }}
                                 </span>
                             </td>
-                            {{-- HR Employee Link --}}
+                            {{-- Office Link --}}
                             <td class="p-table-cell-padding">
-                                @if($user->employee)
+                                @if($user->office)
                                     <div class="flex items-center gap-1.5">
-                                        <span class="material-symbols-outlined text-[16px] text-indigo-600" style="font-variation-settings: 'FILL' 1;">badge</span>
+                                        <span class="material-symbols-outlined text-[16px] text-[#43474f]">corporate_fare</span>
                                         <div class="flex flex-col">
-                                            <span class="font-bold text-[#001e40] text-[12px]">{{ $user->employee->fullname }}</span>
-                                            <span class="text-[10px] text-[#43474f]">{{ $user->employee->designation ?? '—' }}</span>
+                                            <span class="font-bold text-[#001e40] text-[12px]">{{ $user->office->acronym ?? $user->office->name }}</span>
+                                            <span class="text-[10px] text-[#43474f] truncate max-w-[150px]">{{ $user->office->name }}</span>
                                         </div>
                                     </div>
                                 @else
                                     <span class="flex items-center gap-1 text-[#ba1a1a] font-bold text-[11px] uppercase tracking-wide">
-                                        <span class="material-symbols-outlined text-[15px]">link_off</span> Not Linked
+                                        <span class="material-symbols-outlined text-[15px]">corporate_fare</span> No Office
                                     </span>
                                 @endif
                             </td>
@@ -547,15 +539,7 @@ new #[Layout('layouts.app')] class extends Component
 
                     {{-- Hierarchical Office Selector --}}
                     <div>
-                        <label class="block text-[12px] font-bold text-[#001e40] uppercase tracking-wider mb-1">Office / Department Assignment</label>
-                        <select wire:model="userOfficeId" required
-                                class="w-full px-3 py-2 border border-[#c3c6d1] rounded-lg text-sm focus:ring-2 focus:ring-[#001e40] outline-none transition-all text-[#001e40]">
-                            <option value="">-- Select Office / Department --</option>
-                            @foreach($this->hierarchicalOffices as $oId => $formattedName)
-                                <option value="{{ $oId }}">{{ $formattedName }}</option>
-                            @endforeach
-                        </select>
-                        @error('userOfficeId') <span class="text-xs text-[#ba1a1a] font-bold mt-1 block">{{ $message }}</span> @enderror
+                        <x-form-select wire:model="userOfficeId" label="Office / Department Assignment" icon="corporate_fare" required placeholder="-- Select Office / Department --" :options="$this->hierarchicalOffices" searchable />
                     </div>
 
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">

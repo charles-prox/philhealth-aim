@@ -223,8 +223,8 @@ new #[Layout('layouts.app')] class extends Component
         }
 
         DB::transaction(function () use ($folder, $actor) {
-            $isRecommender = $folder->recommended_by_id === $actor->id;
-            $isApprover = $folder->approved_by_id === $actor->id;
+            $isRecommender = $folder->current_signatory_id === $actor->id && !$folder->recommended_signed_at;
+            $isApprover = $folder->current_signatory_id === $actor->id && $folder->recommended_signed_at;
 
             $updates = [];
             $action = '';
@@ -426,18 +426,20 @@ new #[Layout('layouts.app')] class extends Component
 
         $isAdmin = $user->hasRole('Admin');
 
-        $query = ProcurementFolder::with(['purchaseOrder', 'prItems']);
+        $query = ProcurementFolder::with(['purchaseOrder', 'prItems', 'currentSignatory']);
 
         // Enforce RBAC Database Scoping
         if ($isAdmin) {
             // Admins see all offices globally for inspection purposes
         } else {
-            // Office Head: see all PRs within their entire office/division
-            if ($employee?->office_division) {
-                $query->where('requesting_unit', $employee->office_division);
-            } else {
-                $query->where('requested_by_id', $employeeId);
-            }
+            $query->where(function($q) use ($employeeId, $employee) {
+                $q->where('requested_by_id', $employeeId)
+                  ->orWhere('current_signatory_id', $employeeId);
+
+                if ($employee?->office_division) {
+                    $q->orWhere('requesting_unit', $employee->office_division);
+                }
+            });
         }
 
         // Apply Search Filter inside a nested closure to respect the RBAC scoping
@@ -462,10 +464,24 @@ new #[Layout('layouts.app')] class extends Component
             $totalPending = ProcurementFolder::where('status', 'DRAFT')->count();
         } else {
             $totalActive = ProcurementFolder::whereNotIn('status', ['PO_RELEASED'])
-                ->where('requesting_unit', $employee?->office_division)
+                ->where(function($q) use ($employeeId, $employee) {
+                    $q->where('requested_by_id', $employeeId)
+                      ->orWhere('current_signatory_id', $employeeId);
+
+                    if ($employee?->office_division) {
+                        $q->orWhere('requesting_unit', $employee->office_division);
+                    }
+                })
                 ->count();
             $totalPending = ProcurementFolder::where('status', 'DRAFT')
-                ->where('requesting_unit', $employee?->office_division)
+                ->where(function($q) use ($employeeId, $employee) {
+                    $q->where('requested_by_id', $employeeId)
+                      ->orWhere('current_signatory_id', $employeeId);
+
+                    if ($employee?->office_division) {
+                        $q->orWhere('requesting_unit', $employee->office_division);
+                    }
+                })
                 ->count();
         }
 
@@ -647,7 +663,7 @@ new #[Layout('layouts.app')] class extends Component
                                     ];
                                     $color = $statusColors[$folder->status] ?? 'bg-gray-100 text-gray-800';
                                 @endphp
-                                <span class="px-3 py-1 rounded-full text-[10px] font-bold uppercase {{ $color }}">{{ str_replace('_', ' ', $folder->status) }}</span>
+                                <span class="px-3 py-1 rounded-full text-[10px] font-bold uppercase {{ $color }}">{{ $folder->status_label }}</span>
                             </td>
                             <td class="p-table-cell-padding">
                                 @php 
@@ -711,6 +727,21 @@ new #[Layout('layouts.app')] class extends Component
                                                          <button wire:click="cancelSubmission('{{ $folder->id }}')" class="flex items-center gap-2.5 w-full px-3 py-2 text-xs font-bold text-[#ba1a1a] hover:bg-red-50 rounded-lg transition-all whitespace-nowrap">
                                                              <span class="material-symbols-outlined text-[18px]">cancel</span>
                                                              <span>Cancel Submission</span>
+                                                         </button>
+                                                     @endif
+
+                                                     @if($folder->status === 'ROUTING' && auth()->user()->employee_id && $folder->current_signatory_id === auth()->user()->employee_id)
+                                                         <div class="h-px bg-[#eeedf2] my-1"></div>
+                                                         {{-- Sign/Approve PR --}}
+                                                         <button wire:click="approvePr('{{ $folder->id }}')" class="flex items-center gap-2.5 w-full px-3 py-2 text-xs font-bold text-green-700 hover:bg-green-50 rounded-lg transition-all whitespace-nowrap">
+                                                             <span class="material-symbols-outlined text-[18px]">draw</span>
+                                                             <span>Approve / Sign PR</span>
+                                                         </button>
+                                                         
+                                                         {{-- Return with Corrections --}}
+                                                         <button wire:click="startRejection('{{ $folder->id }}')" class="flex items-center gap-2.5 w-full px-3 py-2 text-xs font-bold text-[#ba1a1a] hover:bg-red-50 rounded-lg transition-all whitespace-nowrap">
+                                                             <span class="material-symbols-outlined text-[18px]">assignment_return</span>
+                                                             <span>Return with Corrections</span>
                                                          </button>
                                                      @endif
 

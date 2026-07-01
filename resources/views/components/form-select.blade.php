@@ -21,22 +21,47 @@
         },
         
         get filteredOptions() {
-            if (!this.searchTerm) return Object.entries(this.options);
-            return Object.entries(this.options).filter(([val, lab]) => 
-                lab.toLowerCase().includes(this.searchTerm.toLowerCase())
-            );
+            let result = [];
+            for (const [key, value] of Object.entries(this.options)) {
+                if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+                    // It's a group
+                    let groupItems = Object.entries(value);
+                    if (this.searchTerm) {
+                        groupItems = groupItems.filter(([k, v]) => String(v).toLowerCase().includes(this.searchTerm.toLowerCase()));
+                    }
+                    if (groupItems.length > 0) {
+                        result.push({ isGroup: true, label: key, items: groupItems });
+                    }
+                } else {
+                    // It's a regular option
+                    if (!this.searchTerm || String(value).toLowerCase().includes(this.searchTerm.toLowerCase())) {
+                        result.push({ isGroup: false, value: key, label: value });
+                    }
+                }
+            }
+            return result;
         },
 
         get displayLabel() {
-            // Handle both array (multiple) and single string
             let selectedArray = Array.isArray(this.selected) ? this.selected : (this.selected ? [this.selected] : []);
+            
+            const findLabel = (val) => {
+                for (const [key, value] of Object.entries(this.options)) {
+                    if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+                        if (value[val] !== undefined) return String(value[val]).replace(' (Division Proper)', '');
+                    } else {
+                        if (key == val) return String(value).replace(' (Division Proper)', '');
+                    }
+                }
+                return val;
+            };
             
             if (this.multiple) {
                 if (selectedArray.length === 0) return '{{ $placeholder }}';
-                if (selectedArray.length === 1) return this.options[selectedArray[0]] || selectedArray[0];
+                if (selectedArray.length === 1) return findLabel(selectedArray[0]);
                 return selectedArray.length + ' selected';
             }
-            return this.selected ? (this.options[this.selected] || this.selected) : '{{ $placeholder }}';
+            return this.selected ? findLabel(this.selected) : '{{ $placeholder }}';
         },
 
         select(val) {
@@ -59,7 +84,7 @@
             if (this.multiple) {
                 return Array.isArray(this.selected) && this.selected.includes(val);
             }
-            return this.selected === val;
+            return this.selected == val;
         }
      }">
     @if($label)
@@ -117,23 +142,52 @@
             @endif
 
             <div class="max-h-60 overflow-y-auto custom-scrollbar p-1">
-                <template x-for="[val, lab] in filteredOptions" :key="val">
-                    <button type="button" 
-                            @click="select(val)"
-                            class="w-full text-left px-3 py-2 text-sm text-[#43474f] hover:bg-[#f4f3f8] hover:text-[#001e40] transition-colors flex items-center justify-between rounded-lg group">
-                        <div class="flex-1 min-w-0 pr-2">
-                            <template x-if="lab.includes(' — ')">
-                                <div class="flex flex-col py-0.5">
-                                    <span class="font-bold text-sm" :class="isSelected(val) ? 'text-[#001e40]' : 'text-[#1a1c1f]'" x-text="lab.split(' — ')[0]"></span>
-                                    <span class="text-xs text-[#43474f]/70 group-hover:text-[#001e40]/70" x-text="lab.split(' — ')[1]"></span>
+                <template x-for="(item, index) in filteredOptions" :key="index">
+                    <div>
+                        <template x-if="item.isGroup">
+                            <div class="mb-1">
+                                <div class="px-3 py-2 mt-1 text-[11px] font-bold text-[#43474f] uppercase tracking-wider bg-[#f4f3f8] rounded-md" x-text="item.label"></div>
+                                <div class="mt-1 flex flex-col gap-0.5">
+                                    <template x-for="[val, lab] in item.items" :key="val">
+                                        <button type="button" 
+                                                @click="select(val)"
+                                                class="w-full text-left px-3 pl-4 py-2 text-sm text-[#43474f] hover:bg-[#eeedf2] hover:text-[#001e40] transition-colors flex items-center justify-between rounded-lg group">
+                                            <div class="flex-1 min-w-0 pr-2">
+                                                <template x-if="lab.includes(' — ')">
+                                                    <div class="flex flex-col py-0.5">
+                                                        <span class="font-bold text-sm" :class="isSelected(val) ? 'text-[#001e40]' : 'text-[#1a1c1f]'" x-text="lab.split(' — ')[0]"></span>
+                                                        <span class="text-xs text-[#43474f]/70 group-hover:text-[#001e40]/70" x-text="lab.split(' — ')[1]"></span>
+                                                    </div>
+                                                </template>
+                                                <template x-if="!lab.includes(' — ')">
+                                                    <span class="whitespace-nowrap truncate block" :class="isSelected(val) ? 'font-bold text-[#001e40]' : ''" x-text="lab"></span>
+                                                </template>
+                                            </div>
+                                            <span x-show="isSelected(val)" class="material-symbols-outlined text-[18px] text-[#001e40] flex-shrink-0">check</span>
+                                        </button>
+                                    </template>
                                 </div>
-                            </template>
-                            <template x-if="!lab.includes(' — ')">
-                                <span class="whitespace-nowrap truncate block" :class="isSelected(val) ? 'font-bold text-[#001e40]' : ''" x-text="lab"></span>
-                            </template>
-                        </div>
-                        <span x-show="isSelected(val)" class="material-symbols-outlined text-[18px] text-[#001e40] flex-shrink-0">check</span>
-                    </button>
+                            </div>
+                        </template>
+                        <template x-if="!item.isGroup">
+                            <button type="button" 
+                                    @click="select(item.value)"
+                                    class="w-full text-left px-3 py-2 text-sm text-[#43474f] hover:bg-[#f4f3f8] hover:text-[#001e40] transition-colors flex items-center justify-between rounded-lg group">
+                                <div class="flex-1 min-w-0 pr-2">
+                                    <template x-if="item.label.includes(' — ')">
+                                        <div class="flex flex-col py-0.5">
+                                            <span class="font-bold text-sm" :class="isSelected(item.value) ? 'text-[#001e40]' : 'text-[#1a1c1f]'" x-text="item.label.split(' — ')[0]"></span>
+                                            <span class="text-xs text-[#43474f]/70 group-hover:text-[#001e40]/70" x-text="item.label.split(' — ')[1]"></span>
+                                        </div>
+                                    </template>
+                                    <template x-if="!item.label.includes(' — ')">
+                                        <span class="whitespace-nowrap truncate block" :class="isSelected(item.value) ? 'font-bold text-[#001e40]' : ''" x-text="item.label"></span>
+                                    </template>
+                                </div>
+                                <span x-show="isSelected(item.value)" class="material-symbols-outlined text-[18px] text-[#001e40] flex-shrink-0">check</span>
+                            </button>
+                        </template>
+                    </div>
                 </template>
                 <div x-show="filteredOptions.length === 0" class="p-4 text-center text-xs text-[#43474f] italic">
                     No results found

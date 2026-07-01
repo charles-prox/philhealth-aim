@@ -51,8 +51,8 @@
             }
         </style>
     </head>
-    <body class="font-sans antialiased text-[#1a1c1f] bg-[#f1f3f6]" 
-          x-data="{ 
+    <body class="font-sans antialiased text-[#1a1c1f] bg-[#f1f3f6]">
+        <div x-data="{ 
             sidebarCollapsed: localStorage.getItem('sidebar_collapsed') === 'true',
             searchOpen: false,
             toggleSidebar() {
@@ -62,8 +62,8 @@
             }
           }"
           @keydown.window.prevent.ctrl.k="searchOpen = true" 
-          @keydown.window.prevent.cmd.k="searchOpen = true">
-        <div class="flex h-screen overflow-hidden w-full">
+          @keydown.window.prevent.cmd.k="searchOpen = true"
+          class="flex h-screen overflow-hidden w-full">
             <!-- Sidebar (Fixed) -->
             <livewire:layout.navigation />
 
@@ -96,9 +96,64 @@
                             <span class="text-[10px] font-bold text-[#43474f]/40 bg-white border border-[#c3c6d1] px-1.5 py-0.5 rounded shadow-sm">CTRL K</span>
                         </button>
                         
-                        <div class="relative cursor-pointer active:scale-95">
-                            <span class="material-symbols-outlined text-[#001e40]">notifications</span>
-                            <span class="absolute -top-0.5 -right-0.5 w-2 h-2 bg-[#ba1a1a] rounded-full border-2 border-white"></span>
+                        <!-- Notifications Bell with Dropdown -->
+                        <div class="relative" x-data="{ 
+                            open: false,
+                            unreadCount: {{ auth()->user() ? auth()->user()->unreadNotifications->count() : 0 }},
+                            markAllAsRead() {
+                                fetch('{{ route('notifications.read') }}', {
+                                    method: 'POST',
+                                    headers: {
+                                        'X-CSRF-TOKEN': '{{ csrf_token() }}',
+                                        'Content-Type': 'application/json'
+                                    }
+                                }).then(() => {
+                                    this.unreadCount = 0;
+                                });
+                            }
+                        }">
+                            <button @click="open = !open" class="relative p-1.5 hover:bg-gray-100 rounded-lg transition-all active:scale-95 flex items-center justify-center">
+                                <span class="material-symbols-outlined text-[#001e40]">notifications</span>
+                                <span x-show="unreadCount > 0" class="absolute top-1 right-1 w-2.5 h-2.5 bg-[#ba1a1a] rounded-full border-2 border-white"></span>
+                            </button>
+
+                            <!-- Dropdown Menu -->
+                            <div x-show="open" @click.away="open = false" 
+                                 x-transition:enter="transition ease-out duration-100"
+                                 x-transition:enter-start="transform opacity-0 scale-95"
+                                 x-transition:enter-end="transform opacity-100 scale-100"
+                                 class="absolute right-0 mt-2 w-80 bg-white border border-[#c3c6d1] rounded-xl shadow-xl z-50 overflow-hidden"
+                                 style="display: none;">
+                                <div class="p-3 border-b border-[#eeedf2] bg-[#f9f9fe] flex justify-between items-center">
+                                    <span class="text-xs font-bold text-[#001e40] uppercase tracking-wider">System Alerts</span>
+                                    <button x-show="unreadCount > 0" @click="markAllAsRead()" class="text-[10px] text-[#001e40] font-bold hover:underline">Mark all read</button>
+                                </div>
+                                <div class="max-h-64 overflow-y-auto divide-y divide-[#eeedf2] custom-scrollbar">
+                                    @php
+                                        $notifications = auth()->user() ? auth()->user()->unreadNotifications : collect();
+                                    @endphp
+                                    <template x-if="unreadCount > 0">
+                                        <div class="divide-y divide-[#eeedf2]">
+                                            @foreach($notifications as $notification)
+                                                <div class="p-3 hover:bg-[#f4f3f8] transition-colors flex gap-2.5 items-start">
+                                                    <span class="material-symbols-outlined text-[#001e40] text-[18px] mt-0.5">swap_horiz</span>
+                                                    <div class="flex-1 min-w-0 text-left">
+                                                        <p class="text-[11px] font-bold text-[#1a1c1f]">{{ $notification->data['title'] ?? 'PR Update' }}</p>
+                                                        <p class="text-[10px] text-[#43474f] leading-relaxed mt-0.5 whitespace-normal">
+                                                            Your PR <strong>{{ $notification->data['pr_number'] ?? '' }}</strong> has been automatically re-routed to <strong>{{ $notification->data['new_signatory'] ?? '' }}</strong>.
+                                                        </p>
+                                                        <span class="text-[8px] text-[#43474f]/60 mt-1 block">{{ $notification->created_at->diffForHumans() }}</span>
+                                                    </div>
+                                                </div>
+                                            @endforeach
+                                        </div>
+                                    </template>
+                                    <div x-show="unreadCount === 0" class="p-8 text-center text-[#43474f]/60 italic text-xs flex flex-col items-center gap-2">
+                                        <span class="material-symbols-outlined text-[32px] text-[#c3c6d1]">notifications_off</span>
+                                        No new notifications
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                         
                         <!-- User Profile Dropdown -->
@@ -141,9 +196,6 @@
                         {{ $slot }}
                     </div>
                 </main>
-            </div>
-        </div>
-
         <!-- Search Modal (Portal-like at Root) -->
         <div x-show="searchOpen" 
              x-transition:enter="transition ease-out duration-200"
@@ -186,6 +238,8 @@
                     </div>
                     <p>PhilHealth Region X Command Center</p>
                 </div>
+            </div>
+        </div>
             </div>
         </div>
 

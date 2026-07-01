@@ -46,6 +46,24 @@ new class extends Component
             Command Center
         </x-sidebar-link>
 
+        @auth
+            @if(auth()->user()->employee_id && \App\Models\SignatoryRegistry::isEmployeeSignatory(auth()->user()->employee_id))
+                @php
+                    $pendingCount = \App\Models\ApprovalTask::where('target_employee_id', auth()->user()->employee_id)
+                        ->where('status', 'PENDING')
+                        ->count();
+                @endphp
+                <x-sidebar-link :href="route('admin.unified-desk')" :active="request()->routeIs('admin.unified-desk')" icon="fact_check">
+                    <span class="flex items-center justify-between w-full">
+                        <span x-show="!sidebarCollapsed">Approval Desk</span>
+                        @if($pendingCount > 0)
+                            <span class="ml-auto bg-[#ba1a1a] text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full leading-none {{ $pendingCount > 9 ? 'px-1' : '' }}">{{ $pendingCount }}</span>
+                        @endif
+                    </span>
+                </x-sidebar-link>
+            @endif
+        @endauth
+
         @role('Admin')
             <div class="pt-2 pb-1 px-4" x-show="!sidebarCollapsed">
                 <p class="text-[9px] uppercase tracking-widest text-[#43474f] font-bold">Procurement Views</p>

@@ -76,6 +76,14 @@ Volt::route('admin/signatory-switchboard', 'admin.signatory-switchboard')
     ->middleware(['auth'])
     ->name('admin.signatory');
 
+Volt::route('admin/unified-desk', 'admin.unified-approval-desk')
+    ->middleware(['auth'])
+    ->name('admin.unified-desk');
+
+Volt::route('admin/document-workspace/{taskId}', 'admin.document-review-workspace')
+    ->middleware(['auth'])
+    ->name('admin.document-workspace');
+
 // COB Management Module
 Volt::route('cob/registry', 'cob.cob-registry')
     ->middleware(['auth'])
@@ -98,5 +106,28 @@ Volt::route('cob/distribution', 'cob.distribution-matrix')
     ->name('cob.distribution');
 
 
+
+Route::post('/notifications/read', function () {
+    auth()->user()->unreadNotifications->markAsRead();
+    return response()->json(['success' => true]);
+})->middleware('auth')->name('notifications.read');
+
+Route::get('/admin/procurement/file-stream/{attachmentId}', function ($attachmentId) {
+    $attachment = \App\Models\ProcurementAttachment::findOrFail($attachmentId);
+    
+    // Explicit security check: Validate permission levels before displaying sensitive data
+    if (!auth()->user()->employee || !auth()->user()->employee->isAllowedToSignOrViewDocs()) {
+        abort(403, 'Unauthorized access to secure financial records.');
+    }
+
+    if (!\Illuminate\Support\Facades\Storage::disk('secure_procurement')->exists($attachment->file_path)) {
+        abort(404, 'The physical asset was not found on the secure storage server.');
+    }
+
+    return \Illuminate\Support\Facades\Storage::disk('secure_procurement')->response($attachment->file_path, null, [
+        'Content-Type' => $attachment->mime_type,
+        'Content-Disposition' => 'inline; filename="' . $attachment->original_name . '"',
+    ]);
+})->name('admin.file-stream')->middleware(['auth']);
 
 require __DIR__.'/auth.php';

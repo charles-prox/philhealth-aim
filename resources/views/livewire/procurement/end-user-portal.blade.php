@@ -8,11 +8,12 @@ use App\Models\ProcurementFolder;
 use Illuminate\Support\Facades\DB;
 use Livewire\Volt\Component;
 use Livewire\WithPagination;
+use Livewire\WithFileUploads;
 use Livewire\Attributes\Computed;
 
 new class extends Component
 {
-    use WithPagination;
+    use WithPagination, WithFileUploads;
 
     public int $currentStep = 1;
     public ?string $folderId = null;
@@ -22,6 +23,8 @@ new class extends Component
     public string $purpose = '';
     public ?int $recommendedById = null;
     public ?int $approvedById = null;
+    public $fileOthers = [];
+    public array $stagedFiles = [];
 
     // Search and Input State
     public string $search = '';
@@ -30,6 +33,26 @@ new class extends Component
     public array $basket = [];
 
     public ?string $successMessage = null;
+
+    #[Computed]
+    public function availableBudget(): float
+    {
+        if (!$this->selectedAppLineId) {
+            return 0.0;
+        }
+        $appLineItem = AppLineItem::find($this->selectedAppLineId);
+        if (!$appLineItem) {
+            return 0.0;
+        }
+        $available = $appLineItem->approved_budget - $appLineItem->utilized_budget;
+        if ($this->folderId) {
+            $existingCost = PrItem::where('folder_id', $this->folderId)
+                ->where('app_line_item_id', $this->selectedAppLineId)
+                ->sum('estimated_total_cost');
+            $available += $existingCost;
+        }
+        return (float) $available;
+    }
 
     public function mount(?string $folderId = null): void
     {
@@ -65,6 +88,7 @@ new class extends Component
     public function resetState(): void
     {
         $this->basket = [];
+        $this->stagedFiles = [];
         $this->selectedAppLineId = null;
         $this->purpose = '';
         $this->recommendedById = null;
@@ -95,6 +119,33 @@ new class extends Component
                     ];
                 }
             }
+        }
+    }
+
+    public function updatedFileOthers(): void
+    {
+        if (empty($this->fileOthers)) {
+            return;
+        }
+
+        $newFiles = is_array($this->fileOthers) ? $this->fileOthers : [$this->fileOthers];
+
+        foreach ($newFiles as $file) {
+            if (count($this->stagedFiles) >= 5) {
+                $this->addError('fileOthers', 'You can upload a maximum of 5 supporting files.');
+                break;
+            }
+            $this->stagedFiles[] = $file;
+        }
+
+        // Clear the upload slot so it is ready for the next drop/click
+        $this->fileOthers = [];
+    }
+
+    public function removeStagedFile(int $index): void
+    {
+        if (isset($this->stagedFiles[$index])) {
+            array_splice($this->stagedFiles, $index, 1);
         }
     }
 
@@ -304,15 +355,28 @@ new class extends Component
         $validRecommenderIds = $this->validRecommenders->keys()->implode(',');
         $validApproverIds    = $this->validApprovers->keys()->implode(',');
 
+        if (count($this->stagedFiles) > 5) {
+            $this->addError('fileOthers', 'You can upload a maximum of 5 supporting files.');
+            return;
+        }
+
         $this->validate([
             'trackingNumber'   => 'required|string|max:50|unique:procurement_folders,tracking_number,' . ($this->folderId ?? 'NULL') . ',id',
             'purpose'          => 'required|string|max:1000',
             'recommendedById'  => 'required|integer|in:' . $validRecommenderIds,
             'approvedById'     => 'required|integer|in:' . $validApproverIds,
+            'stagedFiles.*'    => 'nullable|file|mimes:pdf,docx,xlsx,png,jpg|max:10240',
         ], [
             'recommendedById.in' => 'The selected recommending officer is not an authorized signatory for this PR.',
             'approvedById.in'    => 'The selected approving officer is not an authorized signatory for this PR.',
+            'stagedFiles.*.mimes' => 'The supporting attachments must be valid documents (PDF, DOCX, XLSX, PNG, JPG).',
+            'stagedFiles.*.max'   => 'Supporting attachments must not exceed 10MB in size.',
         ]);
+
+        if ($this->folder && $this->folder->status === 'RETURNED_FOR_COMPLIANCE' && !$this->folder->attachments()->where('attachment_type', 'USER_OTHER')->exists() && empty($this->stagedFiles)) {
+            $this->addError('fileOthers', 'Operational Rule: You must upload at least one corrected PDF attachment to achieve compliance.');
+            return;
+        }
 
         if (empty($this->basket)) {
             $this->addError('trackingNumber', 'Your selection is empty. Please select at least one APP line item.');
@@ -390,6 +454,12 @@ new class extends Component
         $approvedEmployee    = Employee::findOrFail((int) $this->approvedById);
 
         $status = $submitToGsu ? 'SUBMITTED_TO_GSU' : 'DRAFT';
+        if ($this->folderId) {
+            $existingFolder = ProcurementFolder::find($this->folderId);
+            if ($existingFolder && in_array($existingFolder->status, ['RETURNED_FOR_EDIT', 'RETURNED_FOR_COMPLIANCE'])) {
+                $status = $submitToGsu ? 'ROUTING' : 'DRAFT';
+            }
+        }
 
         $folder = DB::transaction(function () use ($status, $requestedEmployee, $requestedById, $requestedByDesignation, $recommendedEmployee, $approvedEmployee) {
             if ($this->folderId) {
@@ -440,6 +510,34 @@ new class extends Component
                 ]);
             }
 
+            if (!empty($this->stagedFiles)) {
+                $folderName = preg_replace('/[^A-Za-z0-9\-]/', '_', $folder->tracking_number);
+                $employeeId = auth()->user()->employee_id ?? 1;
+
+                \Illuminate\Support\Facades\Storage::disk('secure_procurement')->makeDirectory("{$folderName}/uploaded");
+
+                foreach ($this->stagedFiles as $index => $extraFile) {
+                    $fileName = "SUPPORTING_" . ($index + 1) . "_" . time() . "." . $extraFile->getClientOriginalExtension();
+                    
+                    // Stream the user data straight to the private uploaded directory channel
+                    $storedPath = $extraFile->storeAs(
+                        "{$folderName}/uploaded", 
+                        $fileName, 
+                        'secure_procurement'
+                    );
+
+                    // Catalog file metadata
+                    $folder->attachments()->create([
+                        'attachment_type' => 'USER_OTHER',
+                        'file_path' => $storedPath,
+                        'original_name' => $extraFile->getClientOriginalName(),
+                        'mime_type' => $extraFile->getMimeType(),
+                        'file_size' => $extraFile->getSize(),
+                        'uploaded_by_employee_id' => $employeeId
+                    ]);
+                }
+            }
+
             foreach ($this->basket as $basketKey => $itemData) {
                 $prItem = PrItem::create([
                     'folder_id'                 => $folder->id,
@@ -459,11 +557,16 @@ new class extends Component
             }
 
             // Create Log
+            $logAction = $status === 'SUBMITTED_TO_GSU' ? 'SUBMITTED' : ($status === 'ROUTING' ? 'RESUBMITTED' : 'CREATED');
+            $logRemarks = $status === 'SUBMITTED_TO_GSU' 
+                ? 'PR submitted to GSU Triage Box.' 
+                : ($status === 'ROUTING' ? 'PR resubmitted with corrections.' : 'PR draft saved.');
+
             \App\Models\ProcurementLog::create([
                 'procurement_folder_id' => $folder->id,
-                'action' => $status === 'SUBMITTED_TO_GSU' ? 'SUBMITTED' : 'CREATED',
+                'action' => $logAction,
                 'actor_id' => $requestedById,
-                'remarks' => $status === 'SUBMITTED_TO_GSU' ? 'PR submitted to GSU Triage Box.' : 'PR draft saved.',
+                'remarks' => $logRemarks,
             ]);
 
             return $folder;
@@ -677,6 +780,12 @@ new class extends Component
     }
 
     #[Computed]
+    public function folder(): ?ProcurementFolder
+    {
+        return $this->folderId ? ProcurementFolder::with('logs.actor')->find($this->folderId) : null;
+    }
+
+    #[Computed]
     public function totalBasketValue(): float
     {
         return collect($this->basket)->sum('total_cost');
@@ -684,6 +793,29 @@ new class extends Component
 }; ?>
 
 <div>
+    @php
+        $inputsDisabled = $this->folder && in_array($this->folder->status, ['RETURNED_FOR_COMPLIANCE', 'REJECTED']);
+        $entirelyLocked = $this->folder && $this->folder->status === 'REJECTED';
+    @endphp
+
+    @if($this->folder && in_array($this->folder->status, ['RETURNED_FOR_EDIT', 'RETURNED_FOR_COMPLIANCE']))
+        @php
+            $latestLog = $this->folder->logs->first();
+        @endphp
+        @if($latestLog)
+            <div class="mb-6 p-4 bg-red-50 text-red-800 rounded-xl border border-red-200 shadow-sm animate-in fade-in slide-in-from-top duration-300">
+                <span class="font-bold flex items-center gap-2 text-sm text-red-700">
+                    <span class="material-symbols-outlined">assignment_return</span> 
+                    Action Required: Document Returned by {{ $latestLog->actor?->fullname ?? 'Officer' }}
+                </span>
+                <p class="text-xs mt-2 bg-white p-3 rounded-lg border border-gray-200 font-mono text-[#1a1c1f]">
+                    <strong>REJECTION TYPE:</strong> {{ str_replace('_', ' ', str_replace('DOCUMENT_REJECTION_', '', $latestLog->action)) }}<br>
+                    <strong>REMARKS:</strong> "{{ $latestLog->remarks }}"
+                </p>
+            </div>
+        @endif
+    @endif
+
     <!-- Sticky Wizard Header Wrapper -->
     <div class="sticky top-0 z-30 bg-[#f1f3f6] -mt-6 pt-6 pb-3 space-y-4">
 
@@ -826,20 +958,32 @@ new class extends Component
                                     </div>
 
                                     <div>
-                                        @if(!$inBasket)
-                                            @if($available > 0)
-                                                <button wire:click="toggleSelection({{ $item->id }})" class="bg-[#001e40] text-white px-3.5 py-2 rounded-lg text-xs font-bold hover:bg-[#001e40]/90 active:scale-95 transition-all flex items-center gap-1.5 shadow-xs">
+                                        @if($inputsDisabled)
+                                            @if(!$inBasket)
+                                                <button disabled class="bg-gray-100 text-gray-400 border border-gray-200 px-3.5 py-2 rounded-lg text-xs font-bold cursor-not-allowed flex items-center gap-1.5">
                                                     <span class="material-symbols-outlined text-[14px]">add_shopping_cart</span>Select
                                                 </button>
                                             @else
-                                                <span class="text-[11px] text-[#ba1a1a] font-bold italic flex items-center gap-1">
-                                                    <span class="material-symbols-outlined text-[14px]">block</span> Exhausted
-                                                </span>
+                                                <button disabled class="text-xs font-bold text-gray-400 bg-gray-50 px-3 py-2 rounded-lg border border-gray-200 cursor-not-allowed flex items-center gap-1">
+                                                    <span class="material-symbols-outlined text-[14px]">remove_shopping_cart</span>Selected
+                                                </button>
                                             @endif
                                         @else
-                                            <button wire:click="toggleSelection({{ $item->id }})" class="text-xs font-bold text-[#ba1a1a] hover:bg-red-50 px-3 py-2 rounded-lg border border-red-100 transition-all flex items-center gap-1">
-                                                <span class="material-symbols-outlined text-[14px]">remove_shopping_cart</span>Deselect
-                                            </button>
+                                            @if(!$inBasket)
+                                                @if($available > 0)
+                                                    <button wire:click="toggleSelection({{ $item->id }})" class="bg-[#001e40] text-white px-3.5 py-2 rounded-lg text-xs font-bold hover:bg-[#001e40]/90 active:scale-95 transition-all flex items-center gap-1.5 shadow-xs">
+                                                        <span class="material-symbols-outlined text-[14px]">add_shopping_cart</span>Select
+                                                    </button>
+                                                @else
+                                                    <span class="text-[11px] text-[#ba1a1a] font-bold italic flex items-center gap-1">
+                                                        <span class="material-symbols-outlined text-[14px]">block</span> Exhausted
+                                                    </span>
+                                                @endif
+                                            @else
+                                                <button wire:click="toggleSelection({{ $item->id }})" class="text-xs font-bold text-[#ba1a1a] hover:bg-red-50 px-3 py-2 rounded-lg border border-red-100 transition-all flex items-center gap-1">
+                                                    <span class="material-symbols-outlined text-[14px]">remove_shopping_cart</span>Deselect
+                                                </button>
+                                            @endif
                                         @endif
                                     </div>
                                 </div>
@@ -1086,11 +1230,15 @@ new class extends Component
             <div class="bg-white border border-[#c3c6d1] rounded-2xl p-8 shadow-sm mt-8 mb-6 space-y-4"
                  x-data="{
                     basket: $wire.entangle('basket'),
+                    availableBudget: {{ $this->availableBudget }},
                     formatPrice(val) {
                         return new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(val || 0);
                     },
                     get totalValue() {
-                        return Object.values(this.basket).reduce((sum, item) => sum + (parseFloat(item.qty || 0) * parseFloat(item.unit_cost || 0)), 0);
+                        return Object.values(this.basket || {}).reduce((sum, item) => {
+                            if (!item) return sum;
+                            return sum + (parseFloat(item.qty || 0) * parseFloat(item.unit_cost || 0));
+                        }, 0);
                     }
                  }">
                 <div class="border-b border-[#eeedf2] pb-4">
@@ -1120,7 +1268,7 @@ new class extends Component
                             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <div>
                                     <label class="block text-[11px] font-bold uppercase tracking-wider text-[#43474f] mb-1.5">Recommended By <span class="text-[#ba1a1a]">*</span></label>
-                                    <x-form-select label="" placeholder="Select Recommending Officer..." icon="recommend" searchable wire:model="recommendedById" :options="$this->validRecommenders->toArray()" />
+                                    <x-form-select label="" placeholder="Select Recommending Officer..." icon="recommend" searchable wire:model="recommendedById" :options="$this->validRecommenders->toArray()" :disabled="$inputsDisabled" />
                                     @if($this->validRecommenders->isEmpty())
                                         <p class="text-[10px] text-amber-600 mt-1 flex items-center gap-1"><span class="material-symbols-outlined text-[13px]">warning</span> No authorized recommenders configured in the Signatory Registry. Contact your system administrator.</p>
                                     @endif
@@ -1129,7 +1277,7 @@ new class extends Component
 
                                 <div>
                                     <label class="block text-[11px] font-bold uppercase tracking-wider text-[#43474f] mb-1.5">Approved By <span class="text-[#ba1a1a]">*</span></label>
-                                    <x-form-select label="" placeholder="Select Approving Officer..." icon="person_check" searchable wire:model="approvedById" :options="$this->validApprovers->toArray()" />
+                                    <x-form-select label="" placeholder="Select Approving Officer..." icon="person_check" searchable wire:model="approvedById" :options="$this->validApprovers->toArray()" :disabled="$inputsDisabled" />
                                     @if($this->validApprovers->isEmpty())
                                         <p class="text-[10px] text-amber-600 mt-1 flex items-center gap-1"><span class="material-symbols-outlined text-[13px]">warning</span> No authorized approving officers configured in the Signatory Registry. Contact your system administrator.</p>
                                     @endif
@@ -1139,10 +1287,11 @@ new class extends Component
 
                             <div>
                                 <label class="block text-[11px] font-bold uppercase tracking-wider text-[#43474f] mb-1.5">Purpose / Justification <span class="text-[#ba1a1a]">*</span></label>
-                                <textarea wire:model="purpose" placeholder="Provide the operational justification..." class="w-full px-4 py-3 bg-white border border-[#c3c6d1] rounded-xl text-sm focus:ring-2 focus:ring-[#001e40] outline-none transition-all resize-none min-h-[100px]"></textarea>
+                                <textarea wire:model="purpose" placeholder="Provide the operational justification..." class="w-full px-4 py-3 bg-white border border-[#c3c6d1] rounded-xl text-sm focus:ring-2 focus:ring-[#001e40] outline-none transition-all resize-none min-h-[100px]" {{ $inputsDisabled ? 'disabled' : '' }}></textarea>
                                 @error('purpose') <p class="text-[11px] text-[#ba1a1a] mt-1">{{ $message }}</p> @enderror
                             </div>
-                        </div>
+
+                            </div>
 
                         {{-- Item Specifications --}}
                         <div class="space-y-4">
@@ -1177,57 +1326,59 @@ new class extends Component
 
                                         <div class="space-y-4 divide-y divide-[#eeedf2] -mt-2">
                                             @forelse($basket as $basketKey => $basketItem)
-                                                <div class="pt-4 first:pt-2 space-y-3">
-                                                    <div class="flex justify-between items-center">
+                                                <div class="pt-4 first:pt-2 space-y-3" x-init="if (!basket['{{ $basketKey }}']) basket['{{ $basketKey }}'] = { description: '', unit: 'pcs', qty: 1, unit_cost: 0.00 }">
+                                                    <div class="flex justify-between items-center border-b border-[#eeedf2]/60 pb-2">
                                                         <span class="text-[10px] font-bold text-[#001e40] uppercase tracking-wider">Item #{{ $loop->iteration }} Details</span>
-                                                        <button wire:click="removeItemRow('{{ $basketKey }}')" class="text-[11px] text-[#ba1a1a] hover:underline flex items-center gap-0.5">
-                                                            <span class="material-symbols-outlined text-[12px]">remove_circle</span> Remove Row
-                                                        </button>
+                                                        @if(!$inputsDisabled)
+                                                            <button type="button" wire:click="removeItemRow('{{ $basketKey }}')" class="px-3 py-1 bg-[#ba1a1a]/10 hover:bg-[#ba1a1a]/20 text-[#ba1a1a] border border-[#ba1a1a]/20 rounded-lg text-[10px] font-bold transition-all flex items-center gap-1 active:scale-95">
+                                                                <span class="material-symbols-outlined text-[14px]">delete</span> Remove Row
+                                                            </button>
+                                                        @endif
                                                     </div>
                                                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                                                         <!-- Left Column: Particulars / Description (textarea) -->
                                                         <div>
                                                             <label class="block text-[10px] font-bold uppercase tracking-wider text-[#43474f] mb-1">Item Particulars <span class="text-[#ba1a1a]">*</span></label>
-                                                            <textarea wire:model.blur="basket.{{ $basketKey }}.description" x-model="basket['{{ $basketKey }}']['description']" placeholder="Enter detailed item particulars/description..." rows="3" class="w-full bg-[#f9f9fe] border border-[#c3c6d1] rounded-lg px-3 py-2 text-xs font-semibold focus:ring-2 focus:ring-[#001e40] outline-none text-[#001e40] resize-y"></textarea>
+                                                            <textarea wire:model.blur="basket.{{ $basketKey }}.description" x-model="basket['{{ $basketKey }}']['description']" placeholder="Enter detailed item particulars/description..." rows="3" class="w-full bg-[#f9f9fe] border border-[#c3c6d1] rounded-lg px-3 py-2 text-xs font-semibold focus:ring-2 focus:ring-[#001e40] outline-none text-[#001e40] resize-y" {{ $inputsDisabled ? 'disabled' : '' }}></textarea>
                                                             @error("basket.{$basketKey}.description")
                                                                 <p class="text-[10px] text-[#ba1a1a] mt-1">{{ $message }}</p>
                                                             @enderror
                                                         </div>
-
+ 
                                                         <!-- Right Column: Unit, Qty, Cost -->
                                                         <div class="space-y-3">
                                                             <div class="grid grid-cols-3 gap-2.5">
                                                                 <div>
                                                                     <label class="block text-[10px] font-bold uppercase tracking-wider text-[#43474f] mb-1">Unit <span class="text-[#ba1a1a]">*</span></label>
-                                                                    <input type="text" wire:model.blur="basket.{{ $basketKey }}.unit" x-model="basket['{{ $basketKey }}']['unit']" placeholder="pcs, box, ream" class="w-full bg-[#f9f9fe] border border-[#c3c6d1] rounded-lg px-3 py-2 text-xs font-semibold focus:ring-2 focus:ring-[#001e40] outline-none text-[#001e40]" />
+                                                                    <input type="text" wire:model.blur="basket.{{ $basketKey }}.unit" x-model="basket['{{ $basketKey }}']['unit']" placeholder="pcs, box, ream" class="w-full bg-[#f9f9fe] border border-[#c3c6d1] rounded-lg px-3 py-2 text-xs font-semibold focus:ring-2 focus:ring-[#001e40] outline-none text-[#001e40]" {{ $inputsDisabled ? 'disabled' : '' }}  />
                                                                     @error("basket.{$basketKey}.unit")
                                                                         <p class="text-[10px] text-[#ba1a1a] mt-1">{{ $message }}</p>
                                                                     @enderror
                                                                 </div>
-
+ 
                                                                 <div>
                                                                     <label class="block text-[10px] font-bold uppercase tracking-wider text-[#43474f] mb-1">Quantity <span class="text-[#ba1a1a]">*</span></label>
-                                                                    <input type="number" min="1" wire:model.blur="basket.{{ $basketKey }}.qty" x-model.number="basket['{{ $basketKey }}']['qty']" placeholder="1" class="w-full bg-[#f9f9fe] border border-[#c3c6d1] rounded-lg px-3 py-2 text-xs font-semibold focus:ring-2 focus:ring-[#001e40] outline-none text-[#001e40]" />
+                                                                    <input type="number" min="1" wire:model.blur="basket.{{ $basketKey }}.qty" x-model.number="basket['{{ $basketKey }}']['qty']" placeholder="1" class="w-full bg-[#f9f9fe] border border-[#c3c6d1] rounded-lg px-3 py-2 text-xs font-semibold focus:ring-2 focus:ring-[#001e40] outline-none text-[#001e40]" {{ $inputsDisabled ? 'disabled' : '' }} />
                                                                     @error("basket.{$basketKey}.qty")
                                                                         <p class="text-[10px] text-[#ba1a1a] mt-1">{{ $message }}</p>
                                                                     @enderror
                                                                 </div>
-
+ 
                                                                 <div>
                                                                     <label class="block text-[10px] font-bold uppercase tracking-wider text-[#43474f] mb-1">Est. Unit Cost <span class="text-[#ba1a1a]">*</span></label>
                                                                     <div class="relative">
                                                                         <span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-[#43474f]">₱</span>
-                                                                        <input type="number" step="0.01" min="0.01" wire:model.blur="basket.{{ $basketKey }}.unit_cost" x-model.number="basket['{{ $basketKey }}']['unit_cost']" placeholder="0.00" class="w-full pl-5 pr-2 py-2 bg-[#f9f9fe] border border-[#c3c6d1] rounded-lg text-xs font-semibold focus:ring-2 focus:ring-[#001e40] outline-none text-[#001e40]" />
+                                                                        <input type="number" step="0.01" min="0.01" wire:model.blur="basket.{{ $basketKey }}.unit_cost" x-model.number="basket['{{ $basketKey }}']['unit_cost']" placeholder="0.00" class="w-full pl-5 pr-2 py-2 bg-[#f9f9fe] border border-[#c3c6d1] rounded-lg text-xs font-semibold focus:ring-2 focus:ring-[#001e40] outline-none text-[#001e40]" {{ $inputsDisabled ? 'disabled' : '' }} />
                                                                     </div>
                                                                     @error("basket.{$basketKey}.unit_cost")
                                                                         <p class="text-[10px] text-[#ba1a1a] mt-1">{{ $message }}</p>
                                                                     @enderror
                                                                 </div>
                                                             </div>
-
+ 
                                                             <div class="flex justify-between items-center text-[11px] font-bold text-[#43474f] pt-1">
                                                                 <span>Subtotal</span>
-                                                                <span class="text-[#001e40]" x-text="'₱' + formatPrice((basket['{{ $basketKey }}']['qty'] || 0) * (basket['{{ $basketKey }}']['unit_cost'] || 0))"></span>
+                                                                <span class="text-[#001e40]" x-text="'₱' + formatPrice((basket['{{ $basketKey }}'] ? basket['{{ $basketKey }}']['qty'] : 0) * (basket['{{ $basketKey }}'] ? basket['{{ $basketKey }}']['unit_cost'] : 0))"></span>
                                                             </div>
                                                         </div>
                                                     </div>
@@ -1239,11 +1390,13 @@ new class extends Component
                                             @endforelse
                                         </div>
 
-                                        <div class="flex justify-start border-t border-[#eeedf2] pt-3">
-                                            <button type="button" wire:click="addItemRowToAppLine({{ $selectedAppLineId }})" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#f9f9fe] hover:bg-[#eeedf2] text-[#001e40] border border-[#c3c6d1] hover:border-[#001e40] text-[11px] font-bold rounded-lg shadow-2xs transition-all">
-                                                <span class="material-symbols-outlined text-[15px]">add</span> Add Item Row
-                                            </button>
-                                        </div>
+                                        @if(!$inputsDisabled)
+                                            <div class="flex justify-start border-t border-[#eeedf2] pt-3">
+                                                <button type="button" wire:click="addItemRowToAppLine({{ $selectedAppLineId }})" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#f9f9fe] hover:bg-[#eeedf2] text-[#001e40] border border-[#c3c6d1] hover:border-[#001e40] text-[11px] font-bold rounded-lg shadow-2xs transition-all">
+                                                    <span class="material-symbols-outlined text-[15px]">add</span> Add Item Row
+                                                </button>
+                                            </div>
+                                        @endif
                                     </div>
                                 @endif
                             </div>
@@ -1278,8 +1431,22 @@ new class extends Component
                                     @endif
                                     <div class="bg-white border border-[#eeedf2] rounded-xl p-4 shadow-sm">
                                         <span class="text-[10px] font-bold text-[#43474f] uppercase tracking-wider block">PR Estimated Value</span>
-                                        <span class="text-2xl font-bold text-green-700 block mt-1" x-text="'₱' + formatPrice(totalValue)"></span>
+                                        <span class="text-2xl font-bold block mt-1 transition-colors duration-200"
+                                              :class="totalValue > availableBudget ? 'text-red-600' : 'text-green-700'"
+                                              x-text="'₱' + formatPrice(totalValue)"></span>
                                     </div>
+
+                                    <template x-if="totalValue > availableBudget">
+                                        <div class="bg-red-50 border border-red-200 rounded-xl p-4 flex gap-3 text-red-800 transition-all">
+                                            <span class="material-symbols-outlined text-[20px] text-red-600 shrink-0 mt-0.5">warning</span>
+                                            <div class="space-y-1">
+                                                <h5 class="text-xs font-bold uppercase tracking-wider text-red-900">Budget Limit Exceeded</h5>
+                                                <p class="text-[11px] leading-relaxed font-semibold">
+                                                    Combined items cost (<span x-text="'₱' + formatPrice(totalValue)"></span>) under {{ $this->selectedAppLine?->project_title ?? 'Selected APP Line' }} exceeds available budget of <span x-text="'₱' + formatPrice(availableBudget)"></span>.
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </template>
                                 </div>
                             </div>
                         </div>
@@ -1381,21 +1548,111 @@ new class extends Component
                     @endif
                 </div>
 
+                {{-- Supporting Attachments Card --}}
+                <div class="border-t border-[#eeedf2] pt-6 space-y-3">
+                    <label class="block text-[11px] font-bold uppercase tracking-wider text-[#43474f]">
+                        Supporting Procurement Attachments
+                        @if($this->folder && $this->folder->status === 'RETURNED_FOR_COMPLIANCE')
+                            <span class="text-red-500 ml-0.5">*</span>
+                        @endif
+                    </label>
+                    
+                    @if(!$this->folder || $this->folder->status !== 'REJECTED')
+                        <div x-data="{ isDragging: false }" 
+                             @dragover.prevent="isDragging = true" 
+                             @dragleave.prevent="isDragging = false" 
+                             @drop.prevent="isDragging = false; $wire.uploadMultiple('fileOthers', $event.dataTransfer.files)"
+                             class="border-2 border-dashed rounded-2xl p-6 transition-all duration-200 text-center cursor-pointer relative flex flex-col items-center justify-center min-h-[140px]"
+                             :class="isDragging ? 'border-[#001e40] bg-[#001e40]/5' : 'border-[#c3c6d1] hover:border-[#001e40] bg-white/50 hover:bg-white'">
+                             
+                            <!-- Live Uploading Overlay State -->
+                            <div wire:loading wire:target="fileOthers" class="absolute inset-0 bg-white/85 rounded-2xl flex flex-col items-center justify-center gap-2 z-20">
+                                <div class="w-8 h-8 border-4 border-[#001e40] border-t-transparent rounded-full animate-spin"></div>
+                                <p class="text-xs font-bold text-[#001e40]">Uploading attachments, please wait...</p>
+                            </div>
+
+                            <input type="file" 
+                                   x-ref="fileInput" 
+                                   wire:model="fileOthers" 
+                                   multiple 
+                                   class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"/>
+                                   
+                            <div class="flex flex-col items-center justify-center gap-2 pointer-events-none">
+                                <span class="material-symbols-outlined text-[32px] transition-colors" 
+                                      :class="isDragging ? 'text-[#001e40]' : 'text-[#43474f]/60'">
+                                    cloud_upload
+                                </span>
+                                <div class="text-xs">
+                                    <span class="font-bold text-[#001e40] underline">Click to upload</span> or drag and drop files here
+                                </div>
+                                <p class="text-[10px] text-[#43474f]/60">Supporting spec sheets, justifications, or compliance revisions (Max 5 files, 10MB per file).</p>
+                            </div>
+                        </div>
+                        @error('fileOthers') <p class="text-[11px] text-[#ba1a1a] mt-1">{{ $message }}</p> @enderror
+                        @error('fileOthers.*') <p class="text-[11px] text-[#ba1a1a] mt-1">{{ $message }}</p> @enderror
+                    @endif
+
+                    {{-- Staged Attachments (Ready to Save) --}}
+                    @if(!empty($this->stagedFiles))
+                        <div class="space-y-2 mt-4">
+                            <span class="text-[10px] font-bold text-[#43474f] uppercase tracking-wider block">Staged Attachments (Ready to Save)</span>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                @foreach($this->stagedFiles as $index => $file)
+                                    <div class="p-3 bg-[#e0f2fe] text-[#0369a1] border border-[#bae6fd]/50 rounded-xl flex items-center justify-between text-xs font-semibold">
+                                        <span class="flex items-center gap-2 truncate pr-2">
+                                            <span class="material-symbols-outlined text-[18px]">draft</span>
+                                            <span class="truncate">{{ $file->getClientOriginalName() }}</span>
+                                            <span class="text-[9px] px-1.5 py-0.5 bg-sky-100 text-sky-800 rounded font-bold uppercase">Staged</span>
+                                        </span>
+                                        <button type="button" wire:click="removeStagedFile({{ $index }})" class="text-[#ba1a1a] hover:underline font-bold shrink-0">Remove</button>
+                                    </div>
+                                @endforeach
+                            </div>
+                        </div>
+                    @endif
+
+                    {{-- Existing Saved Attachments --}}
+                    @if($this->folder && $this->folder->attachments->isNotEmpty())
+                        <div class="space-y-2 mt-4">
+                            <span class="text-[10px] font-bold text-[#43474f] uppercase tracking-wider block">Existing Saved Attachments</span>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                @foreach($this->folder->attachments as $attach)
+                                    <div class="p-3 bg-[#e8f5e9] text-[#2e7d32] border border-[#a5d6a7]/30 rounded-xl flex items-center justify-between text-xs">
+                                        <span class="flex items-center gap-2 truncate pr-2">
+                                            <span class="material-symbols-outlined text-[18px]">
+                                                {{ str_starts_with($attach->attachment_type, 'SYSTEM_') ? 'auto_stories' : 'description' }}
+                                            </span>
+                                            <span class="truncate font-semibold">{{ $attach->original_name }}</span>
+                                            <span class="text-[9px] px-1.5 py-0.5 bg-[#c8e6c9] text-[#1b5e20] rounded font-bold uppercase">{{ str_replace('SYSTEM_', '', $attach->attachment_type) }}</span>
+                                        </span>
+                                        <a href="{{ route('admin.file-stream', $attach->id) }}" target="_blank" class="font-bold underline hover:text-[#001e40] shrink-0">View</a>
+                                    </div>
+                                @endforeach
+                            </div>
+                        </div>
+                    @endif
+                </div>
+
                 {{-- Actions --}}
                 <div class="border-t border-[#eeedf2] pt-6 flex justify-between items-center">
                     <button wire:click="prevStep" class="px-5 py-2.5 text-sm font-bold text-[#43474f] hover:bg-[#eeedf2] rounded-xl transition-all flex items-center gap-2">
                         <span class="material-symbols-outlined text-[18px]">arrow_back</span> Back to Details
                     </button>
-                    <div class="flex items-center gap-3">
-                        <button wire:click="processPrGeneration(false)" wire:loading.attr="disabled" class="px-5 py-2.5 text-xs font-bold border border-[#c3c6d1] text-[#43474f] rounded-xl hover:bg-gray-100 transition-all flex items-center gap-1.5">
-                            <span wire:loading wire:target="processPrGeneration(false)" class="w-3 h-3 border-2 border-gray-500 border-t-transparent rounded-full animate-spin"></span>
-                            <span wire:loading.remove wire:target="processPrGeneration(false)" class="material-symbols-outlined text-[16px]">save</span> Save Draft
-                        </button>
-                        <button wire:click="processPrGeneration(true)" wire:loading.attr="disabled" class="px-6 py-2.5 bg-[#001e40] text-white font-bold text-sm rounded-xl hover:bg-[#1f3f66] active:scale-95 transition-all flex items-center gap-2 shadow-md disabled:opacity-60">
-                            <span wire:loading wire:target="processPrGeneration(true)" class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                            <span wire:loading.remove wire:target="processPrGeneration(true)" class="material-symbols-outlined text-[18px]">send</span> Submit to GSU Triage
-                        </button>
-                    </div>
+                    @if(!$entirelyLocked)
+                        <div class="flex items-center gap-3">
+                            @if(!$inputsDisabled)
+                                <button wire:click="processPrGeneration(false)" wire:loading.attr="disabled" class="px-5 py-2.5 text-xs font-bold border border-[#c3c6d1] text-[#43474f] rounded-xl hover:bg-gray-100 transition-all flex items-center gap-1.5">
+                                    <span wire:loading wire:target="processPrGeneration(false)" class="w-3 h-3 border-2 border-gray-500 border-t-transparent rounded-full animate-spin"></span>
+                                    <span wire:loading.remove wire:target="processPrGeneration(false)" class="material-symbols-outlined text-[16px]">save</span> Save Draft
+                                </button>
+                            @endif
+                            <button wire:click="processPrGeneration(true)" wire:loading.attr="disabled" class="px-6 py-2.5 bg-[#001e40] text-white font-bold text-sm rounded-xl hover:bg-[#1f3f66] active:scale-95 transition-all flex items-center gap-2 shadow-md disabled:opacity-60">
+                                <span wire:loading wire:target="processPrGeneration(true)" class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                                <span wire:loading.remove wire:target="processPrGeneration(true)" class="material-symbols-outlined text-[18px]">send</span> 
+                                <span>{{ ($this->folder && in_array($this->folder->status, ['RETURNED_FOR_EDIT', 'RETURNED_FOR_COMPLIANCE'])) ? 'Resubmit PR to Signatories' : 'Submit to GSU Triage' }}</span>
+                            </button>
+                        </div>
+                    @endif
                 </div>
             </div>
         @endif
