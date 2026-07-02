@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Office;
 use App\Models\User;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Support\Facades\Auth;
@@ -17,6 +18,7 @@ new #[Layout('layouts.guest')] class extends Component
     public string $password_confirmation = '';
     public string $employee_id = '';
     public string $unit = '';
+    public array $offices = [];
 
     /**
      * Mount the component and check if registration is allowed.
@@ -26,6 +28,11 @@ new #[Layout('layouts.guest')] class extends Component
         if (User::count() > 0) {
             $this->redirect(route('login', absolute: false), navigate: true);
         }
+
+        // Load offices from DB as a flat sorted list of acronyms
+        $this->offices = Office::orderBy('acronym')
+            ->pluck('acronym', 'acronym')
+            ->all();
     }
 
     /**
@@ -38,9 +45,17 @@ new #[Layout('layouts.guest')] class extends Component
             'username' => ['required', 'string', 'size:8', 'regex:/^[0-9]+$/', 'unique:'.User::class],
             'email' => ['required', 'string', 'lowercase', 'email', 'max:255', 'unique:'.User::class],
             'password' => ['required', 'string', 'confirmed', Rules\Password::defaults()],
+            'unit' => ['required', 'string', 'exists:offices,acronym'],
         ]);
 
         $validated['password'] = Hash::make($validated['password']);
+
+        // Resolve the office acronym to its primary key
+        $office = Office::where('acronym', $validated['unit'])->first();
+        unset($validated['unit']);
+        if ($office) {
+            $validated['office_id'] = $office->id;
+        }
 
         $isFirstUser = User::count() === 0;
         
@@ -105,13 +120,7 @@ new #[Layout('layouts.guest')] class extends Component
                 <x-form-input wire:model="username" label="HRIS ID (8-Digit)" icon="badge" placeholder="e.g. 12345678" required autocomplete="username" inputmode="numeric" maxlength="8" :error="$errors->first('username')" />
                 
                 <!-- Unit/Section -->
-                <x-form-select wire:model="unit" label="Unit / Section" icon="corporate_fare" required :error="$errors->first('unit')"
-                    :options="[
-                        'logistics' => 'Logistics Division',
-                        'procurement' => 'Procurement Section',
-                        'it' => 'IT Support Unit',
-                        'hr' => 'Human Resources'
-                    ]" />
+                <x-form-select wire:model="unit" label="Unit / Section" icon="corporate_fare" required :searchable="true" :error="$errors->first('unit')" :options="$offices" />
             </div>
 
             <!-- Email -->

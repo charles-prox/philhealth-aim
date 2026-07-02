@@ -19,6 +19,7 @@ class DatabaseSeeder extends Seeder
             RolesAndPermissionsSeeder::class,
             EmployeeSeeder::class,
             OfficeSeeder::class,
+            SignatoryRegistrySeeder::class,
         ]);
     }
 }

@@ -167,6 +167,11 @@ new #[Layout('layouts.app')] class extends Component
             if (!$this->editingUserId) {
                 // Only auto-fill if we are creating a new user
                 $this->userName = $employee->fullname;
+
+                // Auto-fill HRIS ID from the employee's stored id_number
+                if (!empty($employee->id_number)) {
+                    $this->userUsername = $employee->id_number;
+                }
                 
                 // Suggest professional email if currently blank
                 if (empty($this->userEmail)) {
@@ -195,7 +200,7 @@ new #[Layout('layouts.app')] class extends Component
     #[Computed]
     public function systemRoles(): \Illuminate\Support\Collection
     {
-        return \Spatie\Permission\Models\Role::orderBy('name')->pluck('name');
+        return \Spatie\Permission\Models\Role::orderBy('name')->pluck('name', 'name');
     }
 
     #[Computed]
@@ -530,9 +535,19 @@ new #[Layout('layouts.app')] class extends Component
                         </div>
 
                         <div>
-                            <label class="block text-[12px] font-bold text-[#001e40] uppercase tracking-wider mb-1">HRIS ID (8-Digit)</label>
+                            <label class="block text-[12px] font-bold text-[#001e40] uppercase tracking-wider mb-1">
+                                HRIS ID (8-Digit)
+                                @if($selectedEmpId && !empty($userUsername))
+                                    <span class="ml-1 inline-flex items-center gap-0.5 text-[10px] font-bold text-[#1a6b3a] bg-[#d4f0e0] border border-[#a3d9b8] rounded-full px-2 py-0.5 normal-case tracking-normal">
+                                        <span class="material-symbols-outlined text-[12px]">auto_fix_high</span>
+                                        Auto-filled
+                                    </span>
+                                @endif
+                            </label>
                             <input wire:model="userUsername" type="text" required maxlength="8" placeholder="e.g. 12345678"
-                                   class="w-full px-3 py-2 border border-[#c3c6d1] rounded-lg text-sm focus:ring-2 focus:ring-[#001e40] outline-none transition-all"/>
+                                   @if($selectedEmpId && !empty($userUsername)) readonly @endif
+                                   class="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-[#001e40] outline-none transition-all
+                                          {{ ($selectedEmpId && !empty($userUsername)) ? 'border-[#a3d9b8] bg-[#f0fbf5] text-[#1a6b3a] font-semibold cursor-not-allowed' : 'border-[#c3c6d1]' }}"/>
                             @error('userUsername') <span class="text-xs text-[#ba1a1a] font-bold mt-1 block">{{ $message }}</span> @enderror
                         </div>
                     </div>
@@ -551,14 +566,7 @@ new #[Layout('layouts.app')] class extends Component
                         </div>
 
                         <div>
-                            <label class="block text-[12px] font-bold text-[#001e40] uppercase tracking-wider mb-1">System Role</label>
-                            <select wire:model="userRole" required
-                                    class="w-full px-3 py-2 border border-[#c3c6d1] rounded-lg text-sm focus:ring-2 focus:ring-[#001e40] outline-none transition-all">
-                                @foreach($this->systemRoles as $roleOption)
-                                    <option value="{{ $roleOption }}">{{ $roleOption }}</option>
-                                @endforeach
-                            </select>
-                            @error('userRole') <span class="text-xs text-[#ba1a1a] font-bold mt-1 block">{{ $message }}</span> @enderror
+                            <x-form-select wire:model="userRole" label="System Role" icon="manage_accounts" required placeholder="-- Select System Role --" :options="$this->systemRoles" :error="$errors->first('userRole')" />
                         </div>
                     </div>
 

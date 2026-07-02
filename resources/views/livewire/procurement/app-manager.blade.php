@@ -39,7 +39,7 @@ new class extends Component
         ]);
 
         $actor = auth()->user()->employee;
-        if (!$actor) {
+        if (!$actor && !auth()->user()->hasRole('Admin')) {
             $this->errorMessage = "System error: Your account is not linked to an Employee record. Please contact the administrator.";
             return;
         }
@@ -53,7 +53,7 @@ new class extends Component
                     [
                         'is_approved' => false,
                         'approved_at' => null,
-                        'uploaded_by_id' => $actor->id,
+                        'uploaded_by_id' => $actor?->id,
                     ]
                 );
 
