@@ -196,8 +196,45 @@
                         {{ $slot }}
                     </div>
                 </main>
-        <!-- Search Modal (Portal-like at Root) -->
-        <div x-show="searchOpen" 
+        <!-- Search Modal (Pure Alpine - zero Livewire, zero page reload) -->
+        <div x-show="searchOpen"
+             x-data="{
+                 searchQuery: '',
+                 results: { folders: [], employees: [] },
+                 loading: false,
+                 searchDebounce: null,
+                 doSearch() {
+                     clearTimeout(this.searchDebounce);
+                     if (this.searchQuery.length < 2) {
+                         this.results = { folders: [], employees: [] };
+                         return;
+                     }
+                     this.searchDebounce = setTimeout(async () => {
+                         this.loading = true;
+                         try {
+                             const res = await fetch('/api/search?q=' + encodeURIComponent(this.searchQuery), {
+                                 headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }
+                             });
+                             this.results = await res.json();
+                         } catch(e) {
+                             this.results = { folders: [], employees: [] };
+                         } finally {
+                             this.loading = false;
+                         }
+                     }, 300);
+                 },
+                 openResult(url) {
+                     this.searchOpen = false;
+                     this.searchQuery = '';
+                     this.results = { folders: [], employees: [] };
+                     window.location.href = url;
+                 },
+                 close() {
+                     this.searchOpen = false;
+                     this.searchQuery = '';
+                     this.results = { folders: [], employees: [] };
+                 }
+             }"
              x-transition:enter="transition ease-out duration-200"
              x-transition:enter-start="opacity-0"
              x-transition:enter-end="opacity-100"
@@ -205,38 +242,105 @@
              x-transition:leave-start="opacity-100"
              x-transition:leave-end="opacity-0"
              class="fixed inset-0 z-[100] flex items-start justify-center pt-24 p-4 bg-[#001e40]/40 backdrop-blur-sm"
-             @click.self="searchOpen = false"
+             @click.self="close()"
+             @keydown.escape.window="close()"
              x-cloak>
-            
+
             <div class="w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-[#c3c6d1] overflow-hidden"
                  x-transition:enter="transition ease-out duration-200"
                  x-transition:enter-start="opacity-0 scale-95 translate-y-[-20px]"
                  x-transition:enter-end="opacity-100 scale-100 translate-y-0">
-                
-                <div class="p-4 border-b border-[#eeedf2] flex items-center gap-4">
+
+                <!-- Input row -->
+                <div class="p-4 border-b border-[#eeedf2] flex items-center gap-3">
                     <span class="material-symbols-outlined text-[#001e40] text-[24px]">search</span>
-                    <input type="text" 
-                           class="flex-1 bg-transparent border-none focus:ring-0 text-lg placeholder-[#43474f]/40" 
-                           placeholder="Search for assets, PRs, or employees..."
+                    <input type="text"
+                           x-model="searchQuery"
+                           @input="doSearch()"
+                           class="flex-1 bg-transparent border-none focus:ring-0 text-lg placeholder-[#43474f]/40 outline-none text-[#1a1c1f]"
+                           placeholder="Search PRs, Tracking IDs, Security Codes, Employees..."
                            x-ref="searchInput"
-                           @keydown.escape="searchOpen = false"
-                           x-effect="if(searchOpen) { setTimeout(() => $refs.searchInput.focus(), 100) }">
-                    <button @click="searchOpen = false" class="text-xs font-bold text-[#43474f] bg-[#f4f3f8] px-2 py-1 rounded border border-[#c3c6d1]">ESC</button>
+                           x-effect="if(searchOpen) { $nextTick(() => $refs.searchInput.focus()) }">
+                    <div x-show="loading" class="shrink-0">
+                        <div class="w-4 h-4 border-2 border-[#c3c6d1] border-t-[#001e40] rounded-full animate-spin"></div>
+                    </div>
+                    <button @click="close()" class="text-xs font-bold text-[#43474f] bg-[#f4f3f8] px-2 py-1 rounded border border-[#c3c6d1]">ESC</button>
                 </div>
 
+                <!-- Results -->
                 <div class="p-6 max-h-[60vh] overflow-y-auto">
-                    <div class="flex flex-col items-center justify-center py-12 text-[#43474f]/40">
-                        <span class="material-symbols-outlined text-6xl mb-4">manage_search</span>
-                        <p class="text-sm font-medium">Start typing to search across AIM...</p>
-                    </div>
+                    <template x-if="searchQuery.length < 2">
+                        <div class="flex flex-col items-center justify-center py-12 text-[#43474f]/40">
+                            <span class="material-symbols-outlined text-6xl mb-4">manage_search</span>
+                            <p class="text-sm font-medium">Start typing to search across AIM...</p>
+                            <p class="text-[11px] mt-1 text-[#43474f]/50">Tip: You can search by Security Code (e.g. TRK-ADB605F30505)</p>
+                        </div>
+                    </template>
+
+                    <template x-if="searchQuery.length >= 2 && !loading && results.folders.length === 0 && results.employees.length === 0">
+                        <div class="flex flex-col items-center justify-center py-12 text-[#43474f]/40">
+                            <span class="material-symbols-outlined text-6xl mb-4">search_off</span>
+                            <p class="text-sm font-medium">No results found for "<span x-text="searchQuery"></span>"</p>
+                            <p class="text-xs mt-1">Check spelling or try another term.</p>
+                        </div>
+                    </template>
+
+                    <!-- PR / Folder results -->
+                    <template x-if="results.folders.length > 0">
+                        <div class="mb-6">
+                            <h4 class="text-xs font-bold text-[#001e40] uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
+                                <span class="material-symbols-outlined text-[16px]">folder_open</span>
+                                <span>Purchase Requests</span>
+                            </h4>
+                            <div class="space-y-1">
+                                <template x-for="folder in results.folders" :key="folder.id">
+                                    <button @click="openResult(folder.url)"
+                                            class="w-full flex justify-between items-center p-3 hover:bg-[#f4f3f8] rounded-xl transition-all border border-transparent hover:border-[#c3c6d1] group text-left">
+                                        <div class="flex-1 min-w-0">
+                                            <div class="flex items-center gap-2">
+                                                <span class="text-sm font-bold text-[#1a1c1f] group-hover:text-[#001e40] font-mono" x-text="folder.label"></span>
+                                                <span class="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider"
+                                                      :class="folder.status === 'APPROVED' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-amber-50 text-amber-700 border border-amber-200'"
+                                                      x-text="folder.status_label"></span>
+                                            </div>
+                                            <p class="text-xs text-[#43474f] truncate mt-0.5" x-text="folder.purpose"></p>
+                                        </div>
+                                        <div class="text-right ml-4 shrink-0">
+                                            <span class="text-[10px] font-mono bg-[#eeedf2] px-2 py-1 rounded text-[#43474f] font-bold uppercase" x-text="folder.security_code"></span>
+                                            <span class="text-[10px] block text-[#43474f]/60 mt-1" x-text="folder.unit"></span>
+                                        </div>
+                                    </button>
+                                </template>
+                            </div>
+                        </div>
+                    </template>
+
+                    <!-- Employee results -->
+                    <template x-if="results.employees.length > 0">
+                        <div>
+                            <h4 class="text-xs font-bold text-[#001e40] uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
+                                <span class="material-symbols-outlined text-[16px]">people</span>
+                                <span>Employees & Signatories</span>
+                            </h4>
+                            <div class="space-y-1">
+                                <template x-for="emp in results.employees" :key="emp.fullname">
+                                    <div class="flex justify-between items-center p-3 rounded-xl border border-transparent bg-[#f9f9fe]">
+                                        <div>
+                                            <p class="text-sm font-bold text-[#1a1c1f]" x-text="emp.fullname"></p>
+                                            <p class="text-xs text-[#43474f]/60" x-text="emp.designation + ' • ' + emp.office_division"></p>
+                                        </div>
+                                        <span class="text-xs text-[#001e40] font-medium" x-text="emp.status"></span>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+                    </template>
                 </div>
 
+                <!-- Footer -->
                 <div class="px-6 py-3 bg-[#f9f9fe] border-t border-[#eeedf2] flex justify-between items-center text-[10px] text-[#43474f] font-bold uppercase tracking-wider">
-                    <div class="flex gap-4">
-                        <span class="flex items-center gap-1"><b class="bg-white border border-[#c3c6d1] px-1 rounded shadow-sm">↑↓</b> Select</span>
-                        <span class="flex items-center gap-1"><b class="bg-white border border-[#c3c6d1] px-1 rounded shadow-sm">ENTER</b> Open</span>
-                    </div>
-                    <p>PhilHealth Region X Command Center</p>
+                    <span class="flex items-center gap-1"><b class="bg-white border border-[#c3c6d1] px-1 rounded shadow-sm">ESC</b> Close</span>
+                    <p>PhilHealth Region X AIM</p>
                 </div>
             </div>
         </div>
@@ -246,8 +350,9 @@
         <x-toast />
         <x-confirm-modal />
 
-        {{-- Universal Loading Indicator (Overlay for longer actions) --}}
-        <div wire:loading.delay.short class="fixed inset-0 z-[200] flex items-center justify-center bg-[#001e40]/10 backdrop-blur-[2px] transition-all">
+        {{-- Universal Loading Indicator (Overlay for longer actions) - excluded from search updates --}}
+        <div wire:loading.delay.long wire:target="navigateToFolder,save,submit,sign,approve,reject,delete,upload,generate"
+             class="fixed inset-0 z-[200] flex items-center justify-center bg-[#001e40]/10 backdrop-blur-[2px] transition-all">
             <div class="bg-white px-8 py-5 rounded-3xl shadow-2xl border border-[#c3c6d1] flex flex-col items-center gap-4 animate-in fade-in zoom-in duration-300">
                 <div class="relative">
                     <div class="w-12 h-12 border-4 border-[#eeedf2] border-t-[#001e40] rounded-full animate-spin"></div>
@@ -262,8 +367,9 @@
             </div>
         </div>
 
-        {{-- Top Progress Bar (Immediate feedback for all actions) --}}
-        <div wire:loading class="fixed top-0 left-0 right-0 h-1 bg-[#001e40] z-[210] overflow-hidden">
+        {{-- Top Progress Bar - excluded from search typing --}}
+        <div wire:loading wire:target="navigateToFolder,save,submit,sign,approve,reject,delete,upload,generate"
+             class="fixed top-0 left-0 right-0 h-1 bg-[#001e40] z-[210] overflow-hidden">
             <div class="h-full bg-[#a7c8ff] w-full animate-[progress_2s_ease-in-out_infinite]"></div>
         </div>
 

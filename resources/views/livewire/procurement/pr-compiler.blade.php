@@ -495,7 +495,7 @@ new class extends Component
         $this->recommendedById  = null;
         $this->approvedById     = null;
         
-        \App\Jobs\GeneratePrPdfJob::dispatch($folder);
+        \App\Jobs\GenerateProcurementDocumentsJob::dispatch($folder)->afterCommit();
 
         $this->dispatch('pr-created');
     }

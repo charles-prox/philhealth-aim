@@ -30,32 +30,36 @@ class ProcurementPdfService
         Pdf::view('pdf.templates.approved-budget-contract', compact('folder'))
             ->save($disk->path($abcPath));
 
-        // Create log records
-        $folder->attachments()->createMany([
-            [
-                'attachment_type' => 'SYSTEM_PR', 
+        // Create or update log records uniquely to prevent duplication
+        $attachments = [
+            'SYSTEM_PR' => [
                 'file_path' => $prPath, 
                 'original_name' => "PR_{$folder->tracking_number}.pdf", 
                 'mime_type' => 'application/pdf', 
                 'file_size' => $disk->exists($prPath) ? $disk->size($prPath) : 0, 
                 'uploaded_by_employee_id' => $employeeId
             ],
-            [
-                'attachment_type' => 'SYSTEM_RFQ', 
+            'SYSTEM_RFQ' => [
                 'file_path' => $rfqPath, 
                 'original_name' => "RFQ_Canvas_{$folder->tracking_number}.pdf", 
                 'mime_type' => 'application/pdf', 
                 'file_size' => $disk->exists($rfqPath) ? $disk->size($rfqPath) : 0, 
                 'uploaded_by_employee_id' => $employeeId
             ],
-            [
-                'attachment_type' => 'SYSTEM_ABC', 
+            'SYSTEM_ABC' => [
                 'file_path' => $abcPath, 
                 'original_name' => "ABC_Summary_{$folder->tracking_number}.pdf", 
                 'mime_type' => 'application/pdf', 
                 'file_size' => $disk->exists($abcPath) ? $disk->size($abcPath) : 0, 
                 'uploaded_by_employee_id' => $employeeId
             ],
-        ]);
+        ];
+
+        foreach ($attachments as $type => $data) {
+            $folder->attachments()->updateOrCreate(
+                ['attachment_type' => $type],
+                $data
+            );
+        }
     }
 }

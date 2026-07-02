@@ -5,11 +5,12 @@ namespace App\Jobs;
 use App\Models\ProcurementFolder;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Storage;
 
 class GenerateProcurementDocumentsJob implements ShouldQueue
 {
-    use Queueable;
+    use Queueable, SerializesModels;
 
     public $folder;
 
@@ -26,6 +27,9 @@ class GenerateProcurementDocumentsJob implements ShouldQueue
      */
     public function handle(): void
     {
+        // Force refresh model from database to ensure latest signature timestamps and status updates are loaded
+        $this->folder->refresh();
+
         $folderName = preg_replace('/[^A-Za-z0-9\-]/', '_', $this->folder->tracking_number);
 
         // 1. Physically provision the dual-channel subdirectories on the secure private disk

@@ -7,6 +7,8 @@ use Livewire\Attributes\Layout;
 
 new #[Layout('layouts.app')] class extends Component
 {
+    public string $activeTab = 'PENDING';
+
     public function mount()
     {
         $employeeId = auth()->user()->employee_id;
@@ -16,12 +18,14 @@ new #[Layout('layouts.app')] class extends Component
     }
 
     #[Computed]
-    public function pendingTasks()
+    public function tasks()
     {
-        return ApprovalTask::where('target_employee_id', auth()->user()->employee_id)
-            ->where('status', 'PENDING')
-            ->latest()
-            ->get();
+        $query = ApprovalTask::where('target_employee_id', auth()->user()->employee_id);
+        if ($this->activeTab === 'PENDING') {
+            return $query->where('status', 'PENDING')->latest()->get();
+        } else {
+            return $query->whereIn('status', ['SIGNED', 'REJECTED'])->latest()->get();
+        }
     }
 
     #[Computed]
@@ -82,6 +86,29 @@ new #[Layout('layouts.app')] class extends Component
             <p class="text-xs text-[#43474f] mt-1">Review the document details thoroughly before signing off. Blind approvals are prohibited by COA audit rules.</p>
         </div>
 
+        <!-- Tabs Selector -->
+        <div class="flex border-b border-[#eeedf2] bg-[#f9f9fe] px-6 py-2 gap-2 flex-shrink-0">
+            <button wire:click="$set('activeTab', 'PENDING')" 
+                    class="px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 shrink-0 {{ $activeTab === 'PENDING' ? 'bg-[#001e40] text-white shadow-sm' : 'hover:bg-[#eeedf2] text-[#43474f] hover:text-[#001e40]' }}">
+                <span class="material-symbols-outlined text-[16px]">pending_actions</span>
+                <span>Pending Approvals</span>
+                @if($this->stats['pending'] > 0)
+                    <span class="bg-[#ba1a1a] text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full leading-none">{{ $this->stats['pending'] }}</span>
+                @endif
+            </button>
+            <button wire:click="$set('activeTab', 'HISTORY')" 
+                    class="px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 shrink-0 {{ $activeTab === 'HISTORY' ? 'bg-[#001e40] text-white shadow-sm' : 'hover:bg-[#eeedf2] text-[#43474f] hover:text-[#001e40]' }}">
+                <span class="material-symbols-outlined text-[16px]">history</span>
+                <span>Action History</span>
+                @php
+                    $historyCount = $this->stats['signed'] + $this->stats['rejected'];
+                @endphp
+                @if($historyCount > 0)
+                    <span class="bg-[#c3c6d1] text-[#43474f] text-[9px] font-bold px-1.5 py-0.5 rounded-full leading-none">{{ $historyCount }}</span>
+                @endif
+            </button>
+        </div>
+
         <div class="overflow-x-auto custom-scrollbar">
             <table class="w-full border-collapse text-left bg-white">
                 <thead>
@@ -90,31 +117,50 @@ new #[Layout('layouts.app')] class extends Component
                         <th class="p-table-cell-padding">Tracking Number</th>
                         <th class="p-table-cell-padding">Originating Office</th>
                         <th class="p-table-cell-padding">Date Received</th>
+                        @if($activeTab === 'HISTORY')
+                            <th class="p-table-cell-padding">Outcome</th>
+                        @endif
                         <th class="p-table-cell-padding text-right">Operations</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-[#c3c6d1] text-[13px]">
-                    @forelse($this->pendingTasks as $task)
+                    @forelse($this->tasks as $task)
                         <tr class="hover:bg-[#f4f3f8] transition-colors">
                             <td class="p-table-cell-padding font-bold text-[#001e40]">{{ $task->document_label }}</td>
                             <td class="p-table-cell-padding font-mono font-bold text-[#1a1c1f]">{{ $task->tracking_number }}</td>
                             <td class="p-table-cell-padding font-medium text-[#43474f]">{{ $task->originating_office }}</td>
                             <td class="p-table-cell-padding text-xs text-[#43474f]/70">{{ $task->created_at->format('M d, Y h:i A') }}</td>
+                            @if($activeTab === 'HISTORY')
+                                <td class="p-table-cell-padding">
+                                    <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider
+                                        {{ $task->status === 'SIGNED' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200' }}">
+                                        {{ $task->status }}
+                                    </span>
+                                </td>
+                            @endif
                             <td class="p-table-cell-padding text-right">
                                 <a href="{{ route('admin.document-workspace', $task->id) }}" 
                                    class="inline-flex items-center gap-1.5 bg-[#001e40] hover:bg-[#003272] text-white text-xs font-bold px-3 py-2 rounded-lg shadow-sm transition-all active:scale-95">
-                                    <span class="material-symbols-outlined text-[16px]">draw</span>
-                                    <span>Review & Sign</span>
+                                    <span class="material-symbols-outlined text-[16px]">{{ $activeTab === 'PENDING' ? 'draw' : 'visibility' }}</span>
+                                    <span>{{ $activeTab === 'PENDING' ? 'Review & Sign' : 'View Record' }}</span>
                                 </a>
                             </td>
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="5" class="p-16 text-center text-[#43474f]/60 italic">
+                            <td colspan="{{ $activeTab === 'HISTORY' ? 6 : 5 }}" class="p-16 text-center text-[#43474f]/60 italic">
                                 <div class="flex flex-col items-center gap-3">
-                                    <span class="material-symbols-outlined text-[48px] text-[#c3c6d1]">task_alt</span>
-                                    <p class="font-bold text-[#001e40]">No Pending Approvals</p>
-                                    <p class="text-xs">All documents have been processed. Enjoy your empty inbox!</p>
+                                    <span class="material-symbols-outlined text-[48px] text-[#c3c6d1]">
+                                        {{ $activeTab === 'PENDING' ? 'task_alt' : 'history' }}
+                                    </span>
+                                    <p class="font-bold text-[#001e40]">
+                                        {{ $activeTab === 'PENDING' ? 'No Pending Approvals' : 'No History Found' }}
+                                    </p>
+                                    <p class="text-xs">
+                                        {{ $activeTab === 'PENDING' 
+                                            ? 'All documents have been processed. Enjoy your empty inbox!' 
+                                            : 'You have not processed any approval tasks in this cycle yet.' }}
+                                    </p>
                                 </div>
                             </td>
                         </tr>

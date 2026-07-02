@@ -16,5 +16,5 @@ $classes = ($active ?? false)
             {{ $icon }}
         </span>
     @endif
-    <span class="font-body-md transition-opacity duration-200" x-show="!sidebarCollapsed" x-transition>{{ $slot }}</span>
+    <span class="font-body-md transition-opacity duration-200 flex-1" x-show="!sidebarCollapsed" x-transition>{{ $slot }}</span>
 </a>

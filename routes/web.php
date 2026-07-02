@@ -30,19 +30,15 @@ Route::get('procurement', function () {
     if ($user->hasAnyRole(['Admin', 'Procurement Officer'])) {
         return redirect()->route('procurement.admin');
     }
-    if ($user->hasRole('Office Head')) {
-        return redirect()->route('procurement.office');
-    }
+    // Office Heads no longer use the separate office dashboard;
+    // they land on the unified Procurement Portal in read-only mode.
+    // All other roles (Office Head, Document Custodian, etc.) → unified portal.
     return redirect()->route('procurement.portal');
 })->middleware(['auth'])->name('procurement');
 
 Volt::route('procurement/admin', 'procurement.gsu-master-desk')
     ->middleware(['auth'])
     ->name('procurement.admin');
-
-Volt::route('procurement/office', 'procurement.office-dashboard')
-    ->middleware(['auth'])
-    ->name('procurement.office');
 
 Volt::route('procurement/portal', 'procurement.custodian-portal')
     ->middleware(['auth'])
@@ -106,6 +102,69 @@ Volt::route('cob/distribution', 'cob.distribution-matrix')
     ->name('cob.distribution');
 
 
+
+Route::get('/api/search', function () {
+    $query = strtolower(trim(request('q', '')));
+    if (strlen($query) < 2) {
+        return response()->json(['folders' => [], 'employees' => []]);
+    }
+
+    $user = auth()->user();
+    $redirectBase = match(true) {
+        $user->hasAnyRole(['Admin', 'Procurement Officer']) => route('procurement.admin'),
+        default => route('procurement.portal'),
+    };
+
+    // Security code lookup
+    $cleanSearch = strtoupper(str_replace('TRK-', '', trim($query)));
+    $matchingId = null;
+    if (ctype_xdigit($cleanSearch) && strlen($cleanSearch) === 12) {
+        $matchingId = \App\Models\ProcurementFolder::select('id')
+            ->get()
+            ->first(fn($f) => strtoupper(substr(md5($f->id), 0, 12)) === $cleanSearch)
+            ?->id;
+    }
+
+    $foldersQuery = \App\Models\ProcurementFolder::query()
+        ->where(function($q) use ($query, $matchingId) {
+            $q->where(\Illuminate\Support\Facades\DB::raw('LOWER(pr_number)'), 'like', "%{$query}%")
+              ->orWhere(\Illuminate\Support\Facades\DB::raw('LOWER(tracking_number)'), 'like', "%{$query}%")
+              ->orWhere(\Illuminate\Support\Facades\DB::raw('LOWER(overall_purpose)'), 'like', "%{$query}%")
+              ->orWhere(\Illuminate\Support\Facades\DB::raw('LOWER(requesting_unit)'), 'like', "%{$query}%");
+            if ($matchingId) {
+                $q->orWhere('id', $matchingId);
+            }
+        })
+        ->limit(5)
+        ->get(['id', 'pr_number', 'tracking_number', 'overall_purpose', 'requesting_unit', 'status']);
+
+    $folders = $foldersQuery->map(fn($f) => [
+        'id' => $f->id,
+        'label' => $f->pr_number ?: $f->tracking_number,
+        'purpose' => $f->overall_purpose,
+        'unit' => $f->requesting_unit,
+        'status' => $f->status,
+        'status_label' => $f->status_label ?? $f->status,
+        'security_code' => 'TRK-' . strtoupper(substr(md5($f->id), 0, 12)),
+        'url' => $redirectBase . '?search=' . urlencode($f->pr_number ?: $f->tracking_number),
+    ]);
+
+    $employees = \App\Models\Employee::where(
+            \Illuminate\Support\Facades\DB::raw('LOWER(fullname)'), 'like', "%{$query}%"
+        )
+        ->orWhere(\Illuminate\Support\Facades\DB::raw('LOWER(designation)'), 'like', "%{$query}%")
+        ->orWhere(\Illuminate\Support\Facades\DB::raw('LOWER(office_division)'), 'like', "%{$query}%")
+        ->limit(5)
+        ->get(['fullname', 'designation', 'office_division', 'employment_status'])
+        ->map(fn($e) => [
+            'fullname' => $e->fullname,
+            'designation' => $e->designation,
+            'office_division' => $e->office_division,
+            'status' => $e->employment_status,
+        ]);
+
+    return response()->json(['folders' => $folders, 'employees' => $employees]);
+})->middleware('auth')->name('api.search');
 
 Route::post('/notifications/read', function () {
     auth()->user()->unreadNotifications->markAsRead();

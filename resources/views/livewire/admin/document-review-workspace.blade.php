@@ -32,6 +32,15 @@ new #[Layout('layouts.app')] class extends Component
                 'viewed_by_employee_id' => auth()->user()->employee_id
             ]);
         }
+
+        // Auto-select SYSTEM_PR tab by default for verification/approval of PR
+        $uniqueAttachments = $this->task->document->attachments->unique('attachment_type')->values();
+        foreach ($uniqueAttachments as $index => $attach) {
+            if ($attach->attachment_type === 'SYSTEM_PR') {
+                $this->activeTab = $index;
+                break;
+            }
+        }
     }
 
     public function executeApprovalSignature()
@@ -159,13 +168,16 @@ new #[Layout('layouts.app')] class extends Component
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-gutter items-start">
         
         {{-- LEFT PANEL: Document Review Viewport (col-span-2) --}}
-        <div class="lg:col-span-2 space-y-6">
+        <div class="lg:col-span-2 sticky top-[20px] h-[calc(100vh-100px)] flex flex-col">
             
             {{-- Dynamic Tabbed Viewport Box --}}
-            <div class="bg-white border border-[#c3c6d1] rounded-2xl shadow-sm overflow-hidden flex flex-col h-[600px] mb-6">
+            <div class="bg-white border border-[#c3c6d1] rounded-2xl shadow-sm overflow-hidden flex flex-col flex-1 mb-6">
                 <!-- Navigation Tabs Strip -->
+                @php
+                    $uniqueAttachments = $task->document->attachments->unique('attachment_type')->values();
+                @endphp
                 <div class="flex border-b border-[#eeedf2] bg-[#f9f9fe] p-2 gap-2 overflow-x-auto custom-scrollbar">
-                    @foreach($task->document->attachments as $index => $attach)
+                    @foreach($uniqueAttachments as $index => $attach)
                         <button wire:click="$set('activeTab', {{ $index }})" 
                                 class="px-3.5 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 shrink-0 {{ $activeTab == $index ? 'bg-[#001e40] text-white shadow-sm' : 'hover:bg-[#eeedf2] text-[#43474f] hover:text-[#001e40]' }}">
                             <span class="material-symbols-outlined text-[16px]">
@@ -178,8 +190,8 @@ new #[Layout('layouts.app')] class extends Component
 
                 <!-- Live Document Active Viewport Panel -->
                 <div class="flex-1 w-full bg-white relative">
-                    @if(isset($task->document->attachments[$activeTab]))
-                        <iframe src="{{ route('admin.file-stream', $task->document->attachments[$activeTab]->id) }}" 
+                    @if(isset($uniqueAttachments[$activeTab]))
+                        <iframe src="{{ route('admin.file-stream', $uniqueAttachments[$activeTab]->id) }}" 
                                 class="w-full h-full border-0 absolute inset-0" 
                                 loading="lazy"></iframe>
                     @else
@@ -188,82 +200,6 @@ new #[Layout('layouts.app')] class extends Component
                             <span>No compliance documents compiled yet for this request.</span>
                         </div>
                     @endif
-                </div>
-            </div>
-
-            {{-- Line Items Table Card --}}
-            <div class="bg-white border border-[#c3c6d1] rounded-2xl shadow-sm overflow-hidden">
-                <div class="p-gutter border-b border-[#c3c6d1] bg-[#f9f9fe]">
-                    <h3 class="font-bold text-sm text-[#001e40]">Procurement Line Items Review</h3>
-                </div>
-                <div class="overflow-x-auto custom-scrollbar">
-                    <table class="w-full border-collapse text-left bg-white text-xs">
-                        <thead>
-                            <tr class="bg-[#eeedf2] border-b border-[#c3c6d1] font-bold text-[#001e40] uppercase tracking-wider">
-                                <th class="p-3">Description</th>
-                                <th class="p-3 text-center">Qty</th>
-                                <th class="p-3">Unit</th>
-                                <th class="p-3 text-right">Est. Unit Cost</th>
-                                <th class="p-3 text-right">Est. Total Cost</th>
-                                <th class="p-3 text-center">Type</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-[#c3c6d1] text-[#1a1c1f]">
-                            @php $grandTotal = 0; @endphp
-                            @forelse($task->document->prItems as $item)
-                                @php $grandTotal += $item->estimated_total_cost; @endphp
-                                <tr class="hover:bg-[#f4f3f8] transition-colors">
-                                    <td class="p-3 font-medium whitespace-normal max-w-xs">{{ $item->item_description_override }}</td>
-                                    <td class="p-3 text-center font-mono">{{ $item->total_qty }}</td>
-                                    <td class="p-3 text-[#43474f]">{{ $item->unit }}</td>
-                                    <td class="p-3 text-right font-mono">₱{{ number_format($item->estimated_unit_cost, 2) }}</td>
-                                    <td class="p-3 text-right font-mono font-bold">₱{{ number_format($item->estimated_total_cost, 2) }}</td>
-                                    <td class="p-3 text-center">
-                                        <span class="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold {{ $item->accountability_type === 'PAR' ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-blue-50 text-blue-700 border border-blue-200' }}">
-                                            {{ $item->accountability_type }}
-                                        </span>
-                                    </td>
-                                </tr>
-                            @empty
-                                <tr>
-                                    <td colspan="6" class="p-8 text-center text-[#43474f]/60 italic">No line items attached to this folder.</td>
-                                </tr>
-                            @endforelse
-                        </tbody>
-                        <tfoot>
-                            <tr class="bg-[#f9f9fe] font-bold text-sm text-[#001e40] border-t-2 border-[#c3c6d1]">
-                                <td colspan="4" class="p-3 text-right uppercase tracking-wider">Estimated Grand Total:</td>
-                                <td class="p-3 text-right font-mono font-bold text-emerald-800">₱{{ number_format($grandTotal, 2) }}</td>
-                                <td></td>
-                            </tr>
-                        </tfoot>
-                    </table>
-                </div>
-            </div>
-
-            {{-- Audit Timeline Log --}}
-            <div class="bg-white p-6 border border-[#c3c6d1] rounded-2xl shadow-sm space-y-4">
-                <h3 class="font-bold text-sm text-[#001e40] border-b border-[#eeedf2] pb-2">Document Audit Timeline</h3>
-                <div class="space-y-4">
-                    @forelse($task->document->logs as $log)
-                        <div class="flex items-start gap-3 text-xs">
-                            <div class="mt-0.5">
-                                <span class="material-symbols-outlined text-[16px] text-[#43474f]">history</span>
-                            </div>
-                            <div class="flex-1">
-                                <p class="font-bold text-[#1a1c1f]">
-                                    {{ str_replace('_', ' ', $log->action) }} 
-                                    <span class="font-medium text-[#43474f]">by {{ $log->actor?->fullname ?? 'System' }}</span>
-                                </p>
-                                @if($log->remarks)
-                                    <p class="text-[#43474f] italic mt-0.5">"{{ $log->remarks }}"</p>
-                                @endif
-                                <span class="text-[9px] text-[#43474f]/60">{{ $log->created_at->format('M d, Y h:i A') }}</span>
-                            </div>
-                        </div>
-                    @empty
-                        <p class="text-xs text-[#43474f]/60 italic">No historical timeline records found.</p>
-                    @endforelse
                 </div>
             </div>
 
@@ -283,10 +219,10 @@ new #[Layout('layouts.app')] class extends Component
                         {{-- Approve Segment --}}
                         <div class="space-y-3">
                             <div class="p-3 bg-emerald-50 text-emerald-800 rounded-xl border border-emerald-200 text-xs leading-relaxed">
-                                <span class="font-bold flex items-center gap-1">
-                                    <span class="material-symbols-outlined text-[16px]">verified</span> Verify Context
+                                <span class="font-bold flex items-center gap-1 mb-1">
+                                    <span class="material-symbols-outlined text-[16px]">verified</span> Physical & Digital Verification
                                 </span>
-                                Under penalty of audit rules, confirming below stamps your digital signature credentials on this procurement document.
+                                I hereby certify that I have received, reviewed, and signed the physical hard copy of this Purchase Request, and verified that all attached physical and digital documents are correct and consistent.
                             </div>
                             
                             <button wire:click="executeApprovalSignature" 
@@ -375,6 +311,32 @@ new #[Layout('layouts.app')] class extends Component
                 </div>
             </div>
 
+            {{-- Audit Timeline Log (Moved to Right Panel) --}}
+            <div class="bg-white p-6 border border-[#c3c6d1] rounded-2xl shadow-sm space-y-4">
+                <h3 class="font-bold text-sm text-[#001e40] border-b border-[#eeedf2] pb-2">Document Audit Timeline</h3>
+                <div class="space-y-4">
+                    @forelse($task->document->logs as $log)
+                        <div class="flex items-start gap-3 text-xs">
+                            <div class="mt-0.5">
+                                <span class="material-symbols-outlined text-[16px] text-[#43474f]">history</span>
+                            </div>
+                            <div class="flex-1">
+                                <p class="font-bold text-[#1a1c1f]">
+                                    {{ str_replace('_', ' ', $log->action) }} 
+                                    <span class="font-medium text-[#43474f]">by {{ $log->actor?->fullname ?? 'System' }}</span>
+                                </p>
+                                @if($log->remarks)
+                                    <p class="text-[#43474f] italic mt-0.5">"{{ $log->remarks }}"</p>
+                                @endif
+                                <span class="text-[9px] text-[#43474f]/60">{{ $log->created_at->format('M d, Y h:i A') }}</span>
+                            </div>
+                        </div>
+                    @empty
+                        <p class="text-xs text-[#43474f]/60 italic">No historical timeline records found.</p>
+                    @endforelse
+                </div>
+            </div>
+
             {{-- Audit Compliance Info --}}
             <div class="bg-white p-6 border border-[#c3c6d1] rounded-2xl shadow-sm text-xs space-y-3">
                 <h4 class="font-bold text-[#001e40] flex items-center gap-1 border-b border-[#eeedf2] pb-1.5">
@@ -391,3 +353,4 @@ new #[Layout('layouts.app')] class extends Component
 
     </div>
 </div>
+

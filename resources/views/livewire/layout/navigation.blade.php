@@ -71,11 +71,8 @@ new class extends Component
             <x-sidebar-link :href="route('procurement.admin')" :active="request()->routeIs('procurement.admin')" icon="admin_panel_settings">
                 GSU Master Desk
             </x-sidebar-link>
-            <x-sidebar-link :href="route('procurement.office')" :active="request()->routeIs('procurement.office')" icon="account_balance">
-                Office Desk
-            </x-sidebar-link>
             <x-sidebar-link :href="route('procurement.portal')" :active="request()->routeIs('procurement.portal')" icon="shopping_cart">
-                Custodian Portal
+                Procurement Portal
             </x-sidebar-link>
         @else
             @hasanyrole('Procurement Officer')
@@ -83,12 +80,7 @@ new class extends Component
                     Procurement Desk
                 </x-sidebar-link>
             @endhasanyrole
-            @hasanyrole('Office Head')
-                <x-sidebar-link :href="route('procurement.office')" :active="request()->routeIs('procurement.office')" icon="shopping_cart">
-                    Procurement Desk
-                </x-sidebar-link>
-            @endhasanyrole
-            @hasanyrole('Document custodian')
+            @hasanyrole('Document custodian|Office Head')
                 <x-sidebar-link :href="route('procurement.portal')" :active="request()->routeIs('procurement.portal')" icon="shopping_cart">
                     Procurement Portal
                 </x-sidebar-link>

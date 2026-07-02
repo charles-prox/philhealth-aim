@@ -207,7 +207,22 @@ class ProcurementFolder extends Model
                 return "Pending Approval — {$name}";
             }
         }
-        return $this->status === 'SUBMITTED_TO_GSU' ? 'TRIAGE' : str_replace('_', ' ', $this->status);
+
+        $statuses = [
+            'DRAFT'                    => 'Draft',
+            'SUBMITTED_TO_GSU'         => 'Pending GSU Evaluation',
+            'RETURNED_FOR_EDIT'        => 'Returned for Edit',
+            'RETURNED_FOR_COMPLIANCE'  => 'Returned for Compliance',
+            'APPROVED'                 => 'Approved & Signed',
+            'RFQ'                      => 'RFQ Generation',
+            'RFQ_SENT'                 => 'RFQ Sent',
+            'AWARDED'                  => 'Awarded',
+            'PO_RELEASED'              => 'PO Released',
+            'CANCELLED'                => 'Cancelled',
+            'CANCELLED_BY_USER'        => 'Cancelled by User',
+        ];
+
+        return $statuses[$this->status] ?? str_replace('_', ' ', $this->status);
     }
 
     public function applySignature(int $employeeId): void
@@ -228,6 +243,9 @@ class ProcurementFolder extends Model
                 'remarks' => 'PR recommended via Unified Approval Desk.',
                 'created_at' => now(),
             ]);
+
+            // Re-compile core documents to stamp recommendation signature
+            \App\Jobs\GenerateProcurementDocumentsJob::dispatch($this)->afterCommit();
         } elseif (empty($this->approved_signed_at)) {
             $this->update([
                 'status' => 'APPROVED',
@@ -241,6 +259,9 @@ class ProcurementFolder extends Model
                 'remarks' => 'PR approved via Unified Approval Desk.',
                 'created_at' => now(),
             ]);
+
+            // Re-compile core documents to stamp approval signature
+            \App\Jobs\GenerateProcurementDocumentsJob::dispatch($this)->afterCommit();
         }
     }
 

@@ -8,6 +8,8 @@ use Livewire\Attributes\Layout;
 use Livewire\Attributes\On;
 use Livewire\WithPagination;
 
+use Livewire\Attributes\Url;
+
 new #[Layout('layouts.app')] class extends Component
 {
     use WithPagination;
@@ -19,6 +21,7 @@ new #[Layout('layouts.app')] class extends Component
         }
     }
 
+    #[Url]
     public $search = '';
     public bool $isCreatingPr = false;
     public ?string $successMessage = null;
@@ -87,24 +90,7 @@ new #[Layout('layouts.app')] class extends Component
             return;
         }
         
-        $identifier = $folder->pr_number ?: $folder->tracking_number;
-        $storagePath = "pr/{$identifier}.pdf";
-        $disk = \Illuminate\Support\Facades\Storage::disk('public');
-
-        if (!$disk->exists($storagePath)) {
-            try {
-                if (!$disk->exists('pr')) {
-                    $disk->makeDirectory('pr');
-                }
-                \Spatie\LaravelPdf\Facades\Pdf::view('pdf.pr-form', ['folder' => $folder])
-                    ->save($disk->path($storagePath));
-            } catch (\Exception $e) {
-                $this->errorMessage = 'Failed to generate PR PDF: ' . $e->getMessage();
-                return;
-            }
-        }
-        
-        // Dispatch browser event to open new tab
+        // Dispatch browser event to open new tab directly
         $this->dispatch('open-pdf', url: route('procurement.pr.pdf', $folder->id));
     }
 
@@ -451,7 +437,7 @@ new #[Layout('layouts.app')] class extends Component
             ]);
         });
 
-        \App\Jobs\GeneratePrPdfJob::dispatch($folder);
+        \App\Jobs\GenerateProcurementDocumentsJob::dispatch($folder)->afterCommit();
 
         $this->successMessage = "PR accepted and routed to signatories with official number {$this->triagePrNumber}.";
         $this->triagingFolderId = null;
@@ -540,6 +526,18 @@ new #[Layout('layouts.app')] class extends Component
                           $ssq->where(DB::raw('LOWER(name)'), 'like', '%' . strtolower($this->search) . '%');
                       });
                   });
+
+                // Match System Security Code (TRK-...) for Paper-to-Digital validation
+                $cleanSearch = strtoupper(str_replace('TRK-', '', trim($this->search)));
+                if (ctype_xdigit($cleanSearch) && strlen($cleanSearch) === 12) {
+                    $matchingId = \App\Models\ProcurementFolder::select('id')
+                        ->get()
+                        ->first(fn($f) => strtoupper(substr(md5($f->id), 0, 12)) === $cleanSearch)
+                        ?->id;
+                    if ($matchingId) {
+                        $q->orWhere('id', $matchingId);
+                    }
+                }
             });
         }
 
@@ -721,7 +719,6 @@ new #[Layout('layouts.app')] class extends Component
                                 <th class="p-table-cell-padding text-[11px] font-bold text-[#001e40] uppercase tracking-wider">Date Requested</th>
                                 <th class="p-table-cell-padding text-[11px] font-bold text-[#001e40] uppercase tracking-wider">Supplier Name</th>
                                 <th class="p-table-cell-padding text-[11px] font-bold text-[#001e40] uppercase tracking-wider">Status</th>
-                                <th class="p-table-cell-padding text-[11px] font-bold text-[#001e40] uppercase tracking-wider w-56">Delivery Progress</th>
                                 <th class="p-table-cell-padding text-[11px] font-bold text-[#001e40] uppercase tracking-wider text-right">Actions</th>
                             </tr>
                         </thead>
@@ -745,28 +742,14 @@ new #[Layout('layouts.app')] class extends Component
                                             'PO_RELEASED' => 'bg-[#d5e3ff] text-[#001b3c]',
                                             'CANCELLED' => 'bg-red-50 text-red-700 border border-red-200',
                                             'CANCELLED_BY_USER' => 'bg-red-50 text-red-700 border border-red-200',
+                                            'RETURNED_FOR_EDIT' => 'bg-amber-50 text-amber-800 border border-amber-200',
+                                            'RETURNED_FOR_COMPLIANCE' => 'bg-purple-50 text-purple-800 border border-purple-200',
                                         ];
                                         $color = $statusColors[$folder->status] ?? 'bg-gray-100 text-gray-800';
                                     @endphp
                                     <span class="px-3 py-1 rounded-full text-[10px] font-bold uppercase {{ $color }}">{{ $folder->status_label }}</span>
                                 </td>
-                                <td class="p-table-cell-padding">
-                                    @php 
-                                        // Placeholder delivery logic
-                                        $totalItems = $folder->prItems->sum('total_qty');
-                                        $delivered = $folder->status === 'PO_RELEASED' ? $totalItems : 0; 
-                                        $pct = $totalItems > 0 ? round(($delivered/$totalItems)*100) : 0; 
-                                    @endphp
-                                    <div class="space-y-1">
-                                        <div class="flex justify-between text-[10px] font-bold text-[#43474f]">
-                                            <span>{{ $delivered }} / {{ $totalItems }} Units</span>
-                                            <span>{{ $pct }}%</span>
-                                        </div>
-                                        <div class="w-full h-2 bg-[#eeedf2] rounded-full overflow-hidden">
-                                            <div class="h-full bg-[#001e40] rounded-full transition-all duration-700" style="width: {{ $pct }}%"></div>
-                                        </div>
-                                    </div>
-                                </td>
+
                                 <td class="p-table-cell-padding text-right">
                                         <div class="relative inline-block text-left" x-data="{ open: false, coords: { top: 0, left: 0 } }">
                                             <button @click="open = !open; if(open) { let rect = $el.getBoundingClientRect(); coords.top = rect.bottom + window.scrollY; coords.left = rect.right - 240 + window.scrollX; }" class="p-1.5 hover:bg-[#eeedf2] rounded-lg text-[#43474f] hover:text-[#001e40] transition-all flex items-center justify-center" title="Actions">
@@ -1085,30 +1068,32 @@ new #[Layout('layouts.app')] class extends Component
 
         {{-- GSU Triage Accept Modal --}}
         @if($triagingFolderId)
-            <div class="fixed inset-0 bg-[#001e40]/40 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-                <div class="bg-white border border-[#eeedf2] rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4 animate-in fade-in zoom-in-95 duration-200">
-                    <div class="flex items-center gap-3 text-[#001e40]">
-                        <span class="material-symbols-outlined text-[28px]">done_all</span>
-                        <h4 class="text-lg font-bold">Accept & Route Purchase Request</h4>
-                    </div>
-                    <p class="text-xs text-[#43474f] leading-relaxed">
-                        You are accepting this ad-hoc Purchase Request and routing it to the signatories. Please assign or confirm the official sequential PR number.
-                    </p>
-                    <div class="space-y-1.5">
-                        <label class="block text-[10px] font-bold uppercase tracking-wider text-[#43474f]">Official PR Number <span class="text-[#ba1a1a]">*</span></label>
-                        <input type="text" wire:model="triagePrNumber" placeholder="PR-YYYY-XXXXX" class="w-full px-4 py-2.5 bg-[#f9f9fe] border border-[#c3c6d1] rounded-xl text-sm focus:ring-2 focus:ring-[#001e40] outline-none transition-all font-mono font-bold text-[#001e40]"/>
-                        @error('triagePrNumber') <p class="text-[11px] text-[#ba1a1a] mt-1 font-bold">{{ $message }}</p> @enderror
-                    </div>
-                    <div class="flex justify-end gap-3 pt-2">
-                        <button wire:click="$set('triagingFolderId', null)" class="px-4 py-2 bg-white border border-[#c3c6d1] hover:bg-[#f4f3f8] text-[#43474f] font-bold text-xs rounded-lg transition-all">
-                            Cancel
-                        </button>
-                        <button wire:click="acceptTriage" class="px-4 py-2 bg-[#001e40] hover:bg-[#001e40]/90 text-white font-bold text-xs rounded-lg shadow-sm transition-all text-center">
-                            Confirm & Route
-                        </button>
+            <template x-teleport="body">
+                <div class="fixed inset-0 bg-[#001e40]/40 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+                    <div class="bg-white border border-[#eeedf2] rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4 animate-in fade-in zoom-in-95 duration-200">
+                        <div class="flex items-center gap-3 text-[#001e40]">
+                            <span class="material-symbols-outlined text-[28px]">done_all</span>
+                            <h4 class="text-lg font-bold">Accept & Route Purchase Request</h4>
+                        </div>
+                        <p class="text-xs text-[#43474f] leading-relaxed">
+                            You are accepting this ad-hoc Purchase Request and routing it to the signatories. Please assign or confirm the official sequential PR number.
+                        </p>
+                        <div class="space-y-1.5">
+                            <label class="block text-[10px] font-bold uppercase tracking-wider text-[#43474f]">Official PR Number <span class="text-[#ba1a1a]">*</span></label>
+                            <input type="text" wire:model="triagePrNumber" placeholder="PR-YYYY-XXXXX" class="w-full px-4 py-2.5 bg-[#f9f9fe] border border-[#c3c6d1] rounded-xl text-sm focus:ring-2 focus:ring-[#001e40] outline-none transition-all font-mono font-bold text-[#001e40]"/>
+                            @error('triagePrNumber') <p class="text-[11px] text-[#ba1a1a] mt-1 font-bold">{{ $message }}</p> @enderror
+                        </div>
+                        <div class="flex justify-end gap-3 pt-2">
+                            <button wire:click="$set('triagingFolderId', null)" class="px-4 py-2 bg-white border border-[#c3c6d1] hover:bg-[#f4f3f8] text-[#43474f] font-bold text-xs rounded-lg transition-all">
+                                Cancel
+                            </button>
+                            <button wire:click="acceptTriage" class="px-4 py-2 bg-[#001e40] hover:bg-[#001e40]/90 text-white font-bold text-xs rounded-lg shadow-sm transition-all text-center">
+                                Confirm & Route
+                            </button>
+                        </div>
                     </div>
                 </div>
-            </div>
+            </template>
         @endif
 
         {{-- GSU Triage Return Modal --}}
@@ -1222,7 +1207,7 @@ new #[Layout('layouts.app')] class extends Component
                                 {{ $vf->status === 'APPROVED' ? 'bg-green-50 text-green-700 border border-green-200' : 
                                    (in_array($vf->status, ['CANCELLED', 'CANCELLED_BY_USER']) ? 'bg-red-50 text-red-700 border border-red-200' : 
                                    ($vf->status === 'DRAFT' ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-blue-50 text-blue-700 border border-blue-200')) }}">
-                                {{ str_replace('_', ' ', $vf->status) }}
+                                {{ $vf->status_label }}
                             </span>
                             <span class="font-mono text-xs text-[#43474f]/70 bg-[#eeedf2]/50 px-2 py-0.5 rounded border border-[#c3c6d1]">{{ $vf->tracking_number }}</span>
                         </div>

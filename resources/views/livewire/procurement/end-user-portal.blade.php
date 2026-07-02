@@ -572,7 +572,7 @@ new class extends Component
             return $folder;
         });
 
-        \App\Jobs\GeneratePrPdfJob::dispatch($folder);
+        \App\Jobs\GenerateProcurementDocumentsJob::dispatch($folder)->afterCommit();
 
         $this->selectedIds = [];
         $this->basket = [];
@@ -1179,9 +1179,25 @@ new class extends Component
                                                     <a href="{{ route('procurement.pr.pdf', $first->folder_id) }}" target="_blank" x-on:click.stop class="p-1 hover:bg-[#eeedf2] text-[#43474f] hover:text-[#001e40] rounded-lg transition-all flex items-center justify-center" title="View PR PDF">
                                                         <span class="material-symbols-outlined text-[16px] text-red-600">picture_as_pdf</span>
                                                     </a>
-                                                    <span class="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider
-                                                        {{ $first->status === 'APPROVED' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-blue-50 text-blue-700 border border-blue-200' }}">
-                                                        {{ $first->status }}
+                                                    @php
+                                                        $statusColors = [
+                                                            'DRAFT' => 'bg-[#eeedf2] text-[#43474f]',
+                                                            'SUBMITTED_TO_GSU' => 'bg-[#e0f7fa] text-[#006064] border border-[#00acc1]/20',
+                                                            'ROUTING' => 'bg-[#fff9c4] text-[#f57f17] border border-[#fbc02d]/30',
+                                                            'APPROVED' => 'bg-green-50 text-green-800 border border-green-200',
+                                                            'PR_PRINTED' => 'bg-[#ffdbca] text-[#341100]',
+                                                            'RFQ_SENT' => 'bg-[#d8e1ea] text-[#5b646b]',
+                                                            'AWARDED' => 'bg-green-100 text-green-800',
+                                                            'PO_RELEASED' => 'bg-[#d5e3ff] text-[#001b3c]',
+                                                            'CANCELLED' => 'bg-red-50 text-red-700 border border-red-200',
+                                                            'CANCELLED_BY_USER' => 'bg-red-50 text-red-700 border border-red-200',
+                                                            'RETURNED_FOR_EDIT' => 'bg-amber-50 text-amber-800 border border-amber-200',
+                                                            'RETURNED_FOR_COMPLIANCE' => 'bg-purple-50 text-purple-800 border border-purple-200',
+                                                        ];
+                                                        $color = $statusColors[$first->status] ?? 'bg-blue-50 text-blue-700 border border-blue-200';
+                                                    @endphp
+                                                    <span class="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider {{ $color }}">
+                                                        {{ $first->status_label }}
                                                     </span>
                                                 </div>
                                             </div>

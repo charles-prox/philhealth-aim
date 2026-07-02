@@ -184,6 +184,26 @@
             ROUTING REVIEW
         </div>
     @endif
+    @if(($folder->status ?? '') === 'DRAFT')
+        <div style="
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) rotate(-45deg);
+            font-size: 90px;
+            color: rgba(220, 38, 38, 0.12);
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 10px;
+            pointer-events: none;
+            z-index: 9999;
+            white-space: nowrap;
+        ">
+            DRAFT ONLY
+        </div>
+    @endif
+
+
 
     <table class="layout-table">
         <thead>
