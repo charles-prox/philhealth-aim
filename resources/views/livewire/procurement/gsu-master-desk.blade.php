@@ -578,7 +578,7 @@ new #[Layout('layouts.app')] class extends Component
     }
 }; ?>
 
-<div>
+<div x-data="{ isCreatingPr: $wire.entangle('isCreatingPr') }">
     @section('header_title', $isCreatingPr ? 'Compile Purchase Request' : 'Procurement')
 
     @push('header_actions')
@@ -590,7 +590,6 @@ new #[Layout('layouts.app')] class extends Component
     @endpush
 
         <div class="p-container-padding bg-background space-y-6" 
-             x-data="{ isCreatingPr: $wire.entangle('isCreatingPr') }"
              x-on:open-pdf.window="window.open($event.detail.url, '_blank')"
              x-on:open-new-pr.window="$wire.openNewPr()">
 
@@ -841,7 +840,9 @@ new #[Layout('layouts.app')] class extends Component
                                         @else
                                             <p class="font-bold text-[#001e40] text-lg">No Purchase Requests Found</p>
                                             <p class="text-[13px] text-[#43474f] max-w-xs">There are no procurement requests yet. Create the first one to start tracking your purchasing pipeline.</p>
-                                            <x-primary-button icon="add" class="mt-2" x-on:click="$dispatch('open-new-pr')">Create First PR</x-primary-button>
+                                            @if($appGateCleared)
+                                                <x-primary-button icon="add" class="mt-2" x-on:click="$dispatch('open-new-pr')">Create First PR</x-primary-button>
+                                            @endif
                                         @endif
                                     </div>
                                 </td>
@@ -985,7 +986,9 @@ new #[Layout('layouts.app')] class extends Component
 
 
         @if($isCreatingPr)
-            {{-- PR Compiler Workspace Modal --}}
+        </div>
+    </div>
+               {{-- PR Compiler Workspace Modal --}}
             <div class="fixed inset-0 bg-[#001e40]/40 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
                 <div class="bg-[#f1f3f6] border border-[#eeedf2] rounded-2xl max-w-7xl w-full shadow-2xl animate-in fade-in zoom-in-95 duration-200 relative flex flex-col my-8 h-[90vh]">
                     <!-- Modal Header -->
@@ -1288,5 +1291,4 @@ new #[Layout('layouts.app')] class extends Component
             </div>
         @endif
 
-    </div>
 </div>

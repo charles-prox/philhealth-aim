@@ -86,3 +86,6 @@
         background: #737780;
     }
 }
+
+/* Alpine.js x-cloak: hide elements until Alpine initializes */
+[x-cloak] { display: none !important; }

@@ -71,7 +71,7 @@
             <div class="main-workspace flex-1 flex flex-col min-w-0 overflow-hidden transition-all duration-300 md:ml-64" 
                  :class="sidebarCollapsed ? 'md:ml-20' : 'md:ml-64'">
                 <!-- Top App Bar -->
-                <header class="flex justify-between items-center px-6 h-14 w-full sticky top-0 z-40 bg-white border-b border-[#c3c6d1]">
+                <header class="flex justify-between items-center px-6 h-14 w-full sticky top-0 z-10 bg-white border-b border-[#c3c6d1]">
                     <div class="flex items-center gap-4">
                         <button @click="toggleSidebar()" class="p-2 active:scale-95 transition-transform hover:bg-gray-100 rounded-lg">
                             <span class="material-symbols-outlined text-[#001e40]">menu</span>

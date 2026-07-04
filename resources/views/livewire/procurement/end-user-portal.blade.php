@@ -231,8 +231,11 @@ new class extends Component
         ]);
     }
 
-    public function updatedBasket($value, $key): void
+    public function updatedBasket($value, $key = null): void
     {
+        if (is_null($key)) {
+            return;
+        }
         // Key format: "basketKey.field" (e.g., "item_uuid.qty")
         $parts = explode('.', $key);
         if (count($parts) >= 2) {
@@ -298,8 +301,8 @@ new class extends Component
                     $hasError = true;
                 }
 
-                if ($unitCost <= 0.0) {
-                    $this->addError("basket.{$basketKey}.unit_cost", "Estimated unit cost must be greater than 0.");
+                if ($unitCost < 0.0) {
+                    $this->addError("basket.{$basketKey}.unit_cost", "Estimated unit cost cannot be negative.");
                     $hasError = true;
                 }
             }
@@ -406,8 +409,8 @@ new class extends Component
                 $hasError = true;
             }
 
-            if ($unitCost <= 0.0) {
-                $this->addError("basket.{$basketKey}.unit_cost", "Estimated unit cost must be greater than 0.");
+            if ($unitCost < 0.0) {
+                $this->addError("basket.{$basketKey}.unit_cost", "Estimated unit cost cannot be negative.");
                 $hasError = true;
             }
         }
@@ -681,6 +684,19 @@ new class extends Component
                 $sectionSigner = \App\Models\SignatoryRegistry::getActiveSignatoryFor('SECTION_HEAD', $parent->id);
                 if ($sectionSigner) {
                     $recommenderIds[] = $sectionSigner;
+                } else {
+                    // Fallback to parent Division Chief if Section Head is not configured
+                    $division = $parent->parent;
+                    if ($division && $division->type === 'DIVISION') {
+                        $positionSlug = $division->acronym === 'ORVP' ? 'RVP' : $division->acronym . '_CHIEF';
+                        if ($division->acronym === 'MSD') {
+                            $positionSlug = 'MSD_HEAD';
+                        }
+                        $divisionSigner = \App\Models\SignatoryRegistry::getActiveSignatoryFor($positionSlug);
+                        if ($divisionSigner) {
+                            $recommenderIds[] = $divisionSigner;
+                        }
+                    }
                 }
             } elseif ($parent && $parent->type === 'DIVISION') {
                 $positionSlug = $parent->acronym === 'ORVP' ? 'RVP' : $parent->acronym . '_CHIEF';
@@ -1384,7 +1400,7 @@ new class extends Component
                                                                     <label class="block text-[10px] font-bold uppercase tracking-wider text-[#43474f] mb-1">Est. Unit Cost <span class="text-[#ba1a1a]">*</span></label>
                                                                     <div class="relative">
                                                                         <span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-[#43474f]">₱</span>
-                                                                        <input type="number" step="0.01" min="0.01" wire:model.blur="basket.{{ $basketKey }}.unit_cost" x-model.number="basket['{{ $basketKey }}']['unit_cost']" placeholder="0.00" class="w-full pl-5 pr-2 py-2 bg-[#f9f9fe] border border-[#c3c6d1] rounded-lg text-xs font-semibold focus:ring-2 focus:ring-[#001e40] outline-none text-[#001e40]" {{ $inputsDisabled ? 'disabled' : '' }} />
+                                                                        <input type="number" step="0.01" min="0" wire:model.blur="basket.{{ $basketKey }}.unit_cost" x-model.number="basket['{{ $basketKey }}']['unit_cost']" placeholder="0.00" class="w-full pl-5 pr-2 py-2 bg-[#f9f9fe] border border-[#c3c6d1] rounded-lg text-xs font-semibold focus:ring-2 focus:ring-[#001e40] outline-none text-[#001e40]" {{ $inputsDisabled ? 'disabled' : '' }} />
                                                                     </div>
                                                                     @error("basket.{$basketKey}.unit_cost")
                                                                         <p class="text-[10px] text-[#ba1a1a] mt-1">{{ $message }}</p>
