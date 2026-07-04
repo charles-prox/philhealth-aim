@@ -64,7 +64,7 @@ new class extends Component
             @endif
         @endauth
 
-        @role('Admin')
+        @hasanyrole('Admin|Procurement Officer')
             <div class="pt-2 pb-1 px-4" x-show="!sidebarCollapsed">
                 <p class="text-[9px] uppercase tracking-widest text-[#43474f] font-bold">Procurement Views</p>
             </div>
@@ -75,17 +75,12 @@ new class extends Component
                 Procurement Portal
             </x-sidebar-link>
         @else
-            @hasanyrole('Procurement Officer')
-                <x-sidebar-link :href="route('procurement.admin')" :active="request()->routeIs('procurement.admin')" icon="shopping_cart">
-                    Procurement Desk
-                </x-sidebar-link>
-            @endhasanyrole
             @hasanyrole('Document custodian|Office Head')
                 <x-sidebar-link :href="route('procurement.portal')" :active="request()->routeIs('procurement.portal')" icon="shopping_cart">
                     Procurement Portal
                 </x-sidebar-link>
             @endhasanyrole
-        @endrole
+        @endhasanyrole
 
 
         @hasanyrole('Admin|Procurement Officer|Inventory Manager')

@@ -18,7 +18,8 @@ new #[Layout('layouts.app')] class extends Component
     {
         // Office Heads: read-only view to track their office's requests
         // Document Custodians: full create/edit/submit access
-        if (!auth()->user()->hasAnyRole(['Document custodian', 'Office Head', 'Admin'])) {
+        // Admin & Procurement Officer: full access to both portals
+        if (!auth()->user()->hasAnyRole(['Document custodian', 'Office Head', 'Admin', 'Procurement Officer'])) {
             abort(403, 'Unauthorized access.');
         }
     }
@@ -38,7 +39,9 @@ new #[Layout('layouts.app')] class extends Component
     /** Office Heads are read-only: they can view PRs but not create/edit/submit/delete. */
     public function isReadOnly(): bool
     {
-        return auth()->user()->hasRole('Office Head') && !auth()->user()->hasRole('Admin');
+        // Only Office Head (without Admin override) is read-only
+        return auth()->user()->hasRole('Office Head')
+            && !auth()->user()->hasAnyRole(['Admin', 'Procurement Officer']);
     }
 
     #[On('pr-created')]
@@ -93,7 +96,7 @@ new #[Layout('layouts.app')] class extends Component
             return;
         }
 
-        if (!auth()->user()->hasAnyRole(['Admin', 'Document custodian'])) {
+        if (!auth()->user()->hasAnyRole(['Admin', 'Document custodian', 'Procurement Officer'])) {
             abort(403, 'Unauthorized action.');
         }
 
@@ -118,7 +121,7 @@ new #[Layout('layouts.app')] class extends Component
             return;
         }
 
-        if (!auth()->user()->hasAnyRole(['Admin', 'Document custodian'])) {
+        if (!auth()->user()->hasAnyRole(['Admin', 'Document custodian', 'Procurement Officer'])) {
             abort(403, 'Unauthorized action.');
         }
 
@@ -178,9 +181,14 @@ new #[Layout('layouts.app')] class extends Component
                 'procurement_folder_id' => $folder->id,
                 'action' => $hasRejection ? 'RESUBMITTED' : 'SUBMITTED',
                 'actor_id' => $actor->id,
-                'remarks' => $hasRejection ? 'PR resubmitted to GSU Triage.' : 'PR submitted to GSU Triage.',
+                'remarks' => $hasRejection 
+                    ? 'PR resubmitted to GSU Triage Box with corrections. The corrected physical copies of the documents listed in the Cover Letter are enroute to the GSU Procurement Officer.' 
+                    : 'PR submitted to GSU Triage Box. The physical copies of the documents mentioned in the Cover Letter are enroute to the GSU Procurement Officer for triage and verification.',
             ]);
         });
+
+        // Regenerate PDFs with end-user signature stamp
+        \App\Jobs\GenerateProcurementDocumentsJob::dispatchSync($folder);
 
         $this->successMessage = "PR submitted to GSU Triage successfully!";
     }
@@ -278,7 +286,7 @@ new #[Layout('layouts.app')] class extends Component
     #[\Livewire\Attributes\Computed]
     public function viewingFolder()
     {
-        return $this->viewingFolderId ? \App\Models\ProcurementFolder::with('prItems.appLineItem')->find($this->viewingFolderId) : null;
+        return $this->viewingFolderId ? \App\Models\ProcurementFolder::with(['prItems.appLineItem', 'attachments'])->find($this->viewingFolderId) : null;
     }
 
     #[On('app-status-updated')]
@@ -295,11 +303,13 @@ new #[Layout('layouts.app')] class extends Component
         $isAdmin = $user->hasRole('Admin');
         $isOfficeHead = $user->hasRole('Office Head') && !$isAdmin;
 
+        $isProcurementOfficer = $user->hasRole('Procurement Officer');
+
         $query = ProcurementFolder::with(['purchaseOrder', 'prItems', 'currentSignatory']);
 
         // Enforce RBAC Database Scoping
-        if ($isAdmin) {
-            // Admins see all PRs globally
+        if ($isAdmin || $isProcurementOfficer) {
+            // Admins and Procurement Officers see all PRs globally
         } elseif ($isOfficeHead) {
             // Office Heads: see PRs from their division or where they are a signatory
             $query->where(function($q) use ($employeeId, $employee) {
@@ -339,7 +349,7 @@ new #[Layout('layouts.app')] class extends Component
         $folders = $query->orderBy('created_at', 'desc')->paginate(10);
 
         // KPI counts scoped by role
-        if ($isAdmin) {
+        if ($isAdmin || $isProcurementOfficer) {
             $totalActive = ProcurementFolder::whereNotIn('status', ['PO_RELEASED'])->count();
             $totalPending = ProcurementFolder::where('status', 'DRAFT')->count();
         } elseif ($isOfficeHead) {
@@ -901,6 +911,27 @@ new #[Layout('layouts.app')] class extends Component
                                 </tbody>
                             </table>
                         </div>
+
+                        <!-- Attachments / Document Package Section -->
+                        @if($vf->attachments->isNotEmpty())
+                            <div class="space-y-3">
+                                <h4 class="text-[10px] uppercase font-bold tracking-wider text-[#43474f]/60">Document Package & Attachments</h4>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    @foreach($vf->attachments as $attach)
+                                        <div class="p-3 bg-white border border-[#eeedf2] rounded-xl flex items-center justify-between text-xs shadow-2xs">
+                                            <span class="flex items-center gap-2 truncate pr-2">
+                                                <span class="material-symbols-outlined text-[18px] text-[#001e40]/60">
+                                                    {{ str_starts_with($attach->attachment_type, 'SYSTEM_') ? 'auto_stories' : 'description' }}
+                                                </span>
+                                                <span class="truncate font-semibold text-[#001e40]">{{ $attach->original_name }}</span>
+                                                <span class="text-[9px] px-1.5 py-0.5 bg-[#eeedf2] text-[#43474f] rounded font-bold uppercase">{{ str_replace('SYSTEM_', '', $attach->attachment_type) }}</span>
+                                            </span>
+                                            <a href="{{ route('admin.file-stream', $attach->id) }}" target="_blank" class="font-bold text-[#1f477b] underline hover:text-[#001e40] shrink-0">View</a>
+                                        </div>
+                                    @endforeach
+                                </div>
+                            </div>
+                        @endif
                     </div>
                     
                     <!-- Modal Footer -->

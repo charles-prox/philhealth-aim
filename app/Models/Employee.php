@@ -31,7 +31,8 @@ class Employee extends Model
         // 2. Is this employee part of the GSU / procurement unit or Admin?
         $user = $this->user;
         if ($user) {
-            if ($user->hasRole('admin') || $user->hasRole('gsu') || $user->hasRole('gsu-member') || $this->designation === 'GSU Triage Officer') {
+            if ($user->hasAnyRole(['Admin', 'Procurement Officer', 'admin', 'gsu', 'gsu-member'])
+                || in_array($this->designation, ['GSU Triage Officer', 'GSU Officer', 'GSU Review Officer'])) {
                 return true;
             }
         }

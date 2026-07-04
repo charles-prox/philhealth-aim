@@ -325,7 +325,7 @@
                                 </tr>
                             @endforelse
 
-                            <tr style="height: 40px;">
+                            <tr style="height: 120px;">
                                 <td></td>
                                 <td></td>
                                 <td class="text-center" style="vertical-align: top; padding-top: 10px; font-weight: bold;">***Nothing Follows***</td>

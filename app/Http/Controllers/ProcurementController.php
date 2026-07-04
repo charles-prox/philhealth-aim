@@ -36,7 +36,9 @@ class ProcurementController extends Controller
         $folder->refresh();
 
         // Explicit security check: Validate permission levels before displaying sensitive data
-        if (!auth()->user()->employee || !auth()->user()->employee->isAllowedToSignOrViewDocs()) {
+        $user = auth()->user();
+        $hasBypassRole = $user->hasAnyRole(['Admin', 'Procurement Officer']);
+        if (!$hasBypassRole && (!$user->employee || !$user->employee->isAllowedToSignOrViewDocs())) {
             abort(403, 'Unauthorized access to secure financial records.');
         }
 

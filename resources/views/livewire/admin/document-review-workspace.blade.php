@@ -34,8 +34,16 @@ new #[Layout('layouts.app')] class extends Component
         }
 
         // Auto-select SYSTEM_PR tab by default for verification/approval of PR
-        $uniqueAttachments = $this->task->document->attachments->unique('attachment_type')->values();
-        foreach ($uniqueAttachments as $index => $attach) {
+        $sortedAttachments = $this->task->document->attachments->sortBy(function($attach) {
+            return match($attach->attachment_type) {
+                'SYSTEM_PR' => 1,
+                'SYSTEM_COVER_LETTER' => 2,
+                'SYSTEM_ABC' => 3,
+                default => 4
+            };
+        })->values();
+
+        foreach ($sortedAttachments as $index => $attach) {
             if ($attach->attachment_type === 'SYSTEM_PR') {
                 $this->activeTab = $index;
                 break;
@@ -174,26 +182,53 @@ new #[Layout('layouts.app')] class extends Component
             <div class="bg-white border border-[#c3c6d1] rounded-2xl shadow-sm overflow-hidden flex flex-col flex-1 mb-6">
                 <!-- Navigation Tabs Strip -->
                 @php
-                    $uniqueAttachments = $task->document->attachments->unique('attachment_type')->values();
+                    $allAttachments = $task->document->attachments->sortBy(function($attach) {
+                        return match($attach->attachment_type) {
+                            'SYSTEM_PR' => 1,
+                            'SYSTEM_COVER_LETTER' => 2,
+                            'SYSTEM_ABC' => 3,
+                            default => 4
+                        };
+                    })->values();
                 @endphp
                 <div class="flex border-b border-[#eeedf2] bg-[#f9f9fe] p-2 gap-2 overflow-x-auto custom-scrollbar">
-                    @foreach($uniqueAttachments as $index => $attach)
+                    @foreach($allAttachments as $index => $attach)
+                        @php
+                            $displayName = match($attach->attachment_type) {
+                                'SYSTEM_PR' => 'Purchase Request',
+                                'SYSTEM_COVER_LETTER' => 'Cover Letter',
+                                'SYSTEM_ABC' => 'ABC',
+                                default => pathinfo($attach->original_name, PATHINFO_FILENAME)
+                            };
+                        @endphp
                         <button wire:click="$set('activeTab', {{ $index }})" 
                                 class="px-3.5 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 shrink-0 {{ $activeTab == $index ? 'bg-[#001e40] text-white shadow-sm' : 'hover:bg-[#eeedf2] text-[#43474f] hover:text-[#001e40]' }}">
                             <span class="material-symbols-outlined text-[16px]">
                                 {{ str_starts_with($attach->attachment_type, 'SYSTEM_') ? 'auto_stories' : 'description' }}
                             </span>
-                            <span>{{ str_replace('SYSTEM_', '', $attach->attachment_type) }}</span>
+                            <span>{{ $displayName }}</span>
                         </button>
                     @endforeach
                 </div>
 
                 <!-- Live Document Active Viewport Panel -->
                 <div class="flex-1 w-full bg-white relative">
-                    @if(isset($uniqueAttachments[$activeTab]))
-                        <iframe src="{{ route('admin.file-stream', $uniqueAttachments[$activeTab]->id) }}" 
-                                class="w-full h-full border-0 absolute inset-0" 
-                                loading="lazy"></iframe>
+                    @if(isset($allAttachments[$activeTab]))
+                        @php
+                            $activeAttach = $allAttachments[$activeTab];
+                            $isImage = str_starts_with($activeAttach->mime_type, 'image/');
+                        @endphp
+                        @if($isImage)
+                            <div class="w-full h-full flex items-center justify-center p-4 bg-[#f4f3f8] overflow-auto absolute inset-0">
+                                <img src="{{ route('admin.file-stream', $activeAttach->id) }}"
+                                     class="max-w-full max-h-full object-contain shadow-md rounded-xl border border-[#c3c6d1]"
+                                     alt="{{ $activeAttach->original_name }}"/>
+                            </div>
+                        @else
+                            <iframe src="{{ route('admin.file-stream', $activeAttach->id) }}" 
+                                    class="w-full h-full border-0 absolute inset-0" 
+                                    loading="lazy"></iframe>
+                        @endif
                     @else
                         <div class="flex flex-col items-center justify-center h-full text-xs text-[#43474f]/50 italic gap-2">
                             <span class="material-symbols-outlined text-[36px] text-[#c3c6d1]">find_in_page</span>

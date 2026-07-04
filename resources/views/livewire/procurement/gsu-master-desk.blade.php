@@ -43,10 +43,6 @@ new #[Layout('layouts.app')] class extends Component
     public ?string $expandedDrawerId = null;
 
     // GSU Triage Box State
-    public ?string $triagingFolderId = null;
-    public string $triagePrNumber = '';
-    public ?string $triageRejectionFolderId = null;
-    public string $triageRejectionRemarks = '';
     public string $activeTab = 'registry';
 
     #[On('pr-created')]
@@ -172,7 +168,9 @@ new #[Layout('layouts.app')] class extends Component
                 'procurement_folder_id' => $folder->id,
                 'action' => $hasRejection ? 'RESUBMITTED' : 'SUBMITTED',
                 'actor_id' => $actor->id,
-                'remarks' => $hasRejection ? 'PR resubmitted for approval.' : 'PR submitted & routed for approval.',
+                'remarks' => $hasRejection 
+                    ? 'Purchase Request resubmitted and routed for signatures. The physical document package is enroute to the division Recommending Officer.' 
+                    : 'Purchase Request submitted and routed for signatures. The physical document package is enroute to the division Recommending Officer.',
             ]);
         });
 
@@ -181,6 +179,7 @@ new #[Layout('layouts.app')] class extends Component
 
     public function approvePr($id)
     {
+        $this->viewingFolderId = null;
         $folder = ProcurementFolder::findOrFail($id);
 
         $actor = auth()->user()->employee;
@@ -200,7 +199,7 @@ new #[Layout('layouts.app')] class extends Component
             if ($isRecommender && !$folder->recommended_signed_at) {
                 $updates['recommended_signed_at'] = now();
                 $action = 'RECOMMENDED';
-                $remarks = 'PR recommended and routed to Approving Officer.';
+                $remarks = 'Purchase Request recommended and digitally signed by the division Recommending Officer. Routed to the Regional Vice President for final approval.';
                 $this->successMessage = "PR recommended successfully!";
             }
 
@@ -208,7 +207,7 @@ new #[Layout('layouts.app')] class extends Component
                 $updates['status'] = 'APPROVED';
                 $updates['approved_signed_at'] = now();
                 $action = 'APPROVED';
-                $remarks = 'PR approved and locked for COA auditing.';
+                $remarks = 'Purchase Request approved and digitally signed by the Regional Vice President. Document package locked for procurement processing and auditing.';
                 $this->successMessage = "PR approved successfully and permanently locked!";
             }
 
@@ -229,6 +228,7 @@ new #[Layout('layouts.app')] class extends Component
 
     public function startRejection($id)
     {
+        $this->viewingFolderId = null;
         $this->rejectingFolderId = $id;
         $this->rejectionRemarks = '';
     }
@@ -394,7 +394,7 @@ new #[Layout('layouts.app')] class extends Component
     #[\Livewire\Attributes\Computed]
     public function viewingFolder()
     {
-        return $this->viewingFolderId ? \App\Models\ProcurementFolder::with('prItems.appLineItem')->find($this->viewingFolderId) : null;
+        return $this->viewingFolderId ? \App\Models\ProcurementFolder::with(['prItems.appLineItem', 'attachments'])->find($this->viewingFolderId) : null;
     }
 
     #[On('app-status-updated')]
@@ -403,83 +403,7 @@ new #[Layout('layouts.app')] class extends Component
         // Force refresh state on APP updates
     }
 
-    public function startTriageAccept($folderId)
-    {
-        $this->triagingFolderId = $folderId;
-        $this->triagePrNumber = ProcurementFolder::generateNextPrNumber();
-    }
 
-    public function acceptTriage()
-    {
-        $this->validate([
-            'triagePrNumber' => 'required|string|max:50|unique:procurement_folders,pr_number',
-        ]);
-
-        $folder = ProcurementFolder::findOrFail($this->triagingFolderId);
-        $actor = auth()->user()->employee;
-        if (!$actor) {
-            $this->errorMessage = "System error: Your account is not linked to an Employee record.";
-            return;
-        }
-
-        DB::transaction(function () use ($folder, $actor) {
-            $folder->update([
-                'pr_number' => $this->triagePrNumber,
-                'status' => 'ROUTING',
-                'requested_signed_at' => now(), // Auto-sign when GSU accepts and routes
-            ]);
-
-            \App\Models\ProcurementLog::create([
-                'procurement_folder_id' => $folder->id,
-                'action' => 'APPROVED',
-                'actor_id' => $actor->id,
-                'remarks' => "Ad-hoc PR accepted by GSU and routed with official PR number {$this->triagePrNumber}.",
-            ]);
-        });
-
-        \App\Jobs\GenerateProcurementDocumentsJob::dispatch($folder)->afterCommit();
-
-        $this->successMessage = "PR accepted and routed to signatories with official number {$this->triagePrNumber}.";
-        $this->triagingFolderId = null;
-        $this->triagePrNumber = '';
-    }
-
-    public function startTriageReject($folderId)
-    {
-        $this->triageRejectionFolderId = $folderId;
-        $this->triageRejectionRemarks = '';
-    }
-
-    public function rejectTriage()
-    {
-        $this->validate([
-            'triageRejectionRemarks' => 'required|string|max:1000',
-        ]);
-
-        $folder = ProcurementFolder::findOrFail($this->triageRejectionFolderId);
-        $actor = auth()->user()->employee;
-        if (!$actor) {
-            $this->errorMessage = "System error: Your account is not linked to an Employee record.";
-            return;
-        }
-
-        DB::transaction(function () use ($folder, $actor) {
-            $folder->update([
-                'status' => 'DRAFT',
-            ]);
-
-            \App\Models\ProcurementLog::create([
-                'procurement_folder_id' => $folder->id,
-                'action' => 'REJECTED',
-                'actor_id' => $actor->id,
-                'remarks' => $this->triageRejectionRemarks,
-            ]);
-        });
-
-        $this->successMessage = "PR returned to sender's DRAFT registry.";
-        $this->triageRejectionFolderId = null;
-        $this->triageRejectionRemarks = '';
-    }
 
     public function with(): array
     {
@@ -490,7 +414,9 @@ new #[Layout('layouts.app')] class extends Component
         $isAdmin = $user->hasRole('Admin');
         $isProcurementOfficer = $user->hasRole('Procurement Officer');
 
-        $query = ProcurementFolder::with(['purchaseOrder', 'prItems', 'currentSignatory']);
+        $query = ProcurementFolder::with(['purchaseOrder', 'prItems', 'currentSignatory'])
+            ->whereNotNull('pr_number')
+            ->where('pr_number', '<>', '');
 
         // Scoping for Procurement Officers (who are not Admins)
         if (!$isAdmin && $isProcurementOfficer) {
@@ -681,7 +607,7 @@ new #[Layout('layouts.app')] class extends Component
             </button>
             <button wire:click="$set('activeTab', 'triage')" class="pb-3 text-sm font-bold border-b-2 transition-all flex items-center gap-2 relative {{ $activeTab === 'triage' ? 'border-[#001e40] text-[#001e40]' : 'border-transparent text-[#43474f] hover:text-[#001e40]' }}">
                 <span class="material-symbols-outlined text-[18px]">move_to_inbox</span>
-                GSU Triage Box
+                GSU Inbox
                 @if($triageCount > 0)
                     <span class="px-2 py-0.5 text-[10px] font-black bg-[#ba1a1a] text-white rounded-full animate-pulse">{{ $triageCount }}</span>
                 @endif
@@ -863,19 +789,19 @@ new #[Layout('layouts.app')] class extends Component
                 @endif
             </div>
         @else
-            {{-- GSU Triage Box Table --}}
+            {{-- GSU Inbox Table --}}
             <div class="bg-white border border-[#c3c6d1] rounded-xl shadow-sm relative">
                 <div wire:loading class="absolute inset-x-0 bottom-0 top-[45px] bg-white/60 backdrop-blur-[2px] z-50 flex items-center justify-center transition-all">
                     <div class="flex flex-col items-center gap-2">
                         <div class="w-10 h-10 border-4 border-[#eeedf2] border-t-[#001e40] rounded-full animate-spin"></div>
-                        <span class="text-[12px] font-bold text-[#001e40] uppercase tracking-widest">Updating Triage...</span>
+                        <span class="text-[12px] font-bold text-[#001e40] uppercase tracking-widest">Updating Inbox...</span>
                     </div>
                 </div>
 
                 <div class="p-gutter border-b border-[#c3c6d1] bg-[#f9f9fe] flex flex-wrap items-center justify-between gap-4">
                     <div>
-                        <h3 class="font-bold text-[#001e40] text-lg">GSU Triage Box</h3>
-                        <p class="text-[11px] text-[#43474f] mt-0.5">Ad-hoc Purchase Requests submitted by end-users. Review and assign official PR numbers before routing.</p>
+                        <h3 class="font-bold text-[#001e40] text-lg">GSU Inbox</h3>
+                        <p class="text-[11px] text-[#43474f] mt-0.5">Incoming Purchase Requests submitted by end-users. Review and assign official PR numbers before routing.</p>
                     </div>
                 </div>
 
@@ -914,20 +840,13 @@ new #[Layout('layouts.app')] class extends Component
                                 </td>
                                 <td class="p-table-cell-padding text-right">
                                     <div class="flex justify-end items-center gap-2">
-                                        <button
-                                            wire:click="startTriageAccept('{{ $folder->id }}')"
-                                            class="px-3 py-1.5 bg-[#001e40] text-white text-[11px] font-bold rounded-lg hover:bg-[#001e40]/90 transition-all flex items-center gap-1.5"
+                                        <a href="{{ route('procurement.gsu.review', $folder->id) }}"
+                                            class="px-3 py-1.5 bg-[#f4f3f8] text-[#001e40] border border-[#c3c6d1] text-[11px] font-bold rounded-lg hover:bg-[#eeedf2] transition-all flex items-center gap-1.5"
                                         >
-                                            <span class="material-symbols-outlined text-[14px]">done</span>
-                                            Accept & Route
-                                        </button>
-                                        <button
-                                            wire:click="startTriageReject('{{ $folder->id }}')"
-                                            class="px-3 py-1.5 border border-[#ba1a1a] text-[#ba1a1a] text-[11px] font-bold rounded-lg hover:bg-red-50 transition-all flex items-center gap-1.5"
-                                        >
-                                            <span class="material-symbols-outlined text-[14px]">assignment_return</span>
-                                            Return
-                                        </button>
+                                            <span class="material-symbols-outlined text-[14px]">rate_review</span>
+                                            Open & Review
+                                        </a>
+
                                         <button
                                             wire:click="viewHistory('{{ $folder->id }}')"
                                             class="p-1.5 bg-[#f4f3f8] text-[#43474f] border border-[#c3c6d1] rounded-lg hover:bg-[#eeedf2] transition-all material-symbols-outlined text-[18px]"
@@ -941,8 +860,8 @@ new #[Layout('layouts.app')] class extends Component
                                 <td colspan="6" class="px-6 py-20 text-center">
                                     <div class="flex flex-col items-center gap-3 text-[#43474f]">
                                         <span class="material-symbols-outlined text-[56px] text-[#c3c6d1]">inbox</span>
-                                        <p class="font-bold text-[#001e40] text-lg">Triage is Clear</p>
-                                        <p class="text-[13px] text-[#43474f] max-w-xs">There are no pending ad-hoc Purchase Requests currently awaiting GSU triage.</p>
+                                        <p class="font-bold text-[#001e40] text-lg">Inbox is Clear</p>
+                                        <p class="text-[13px] text-[#43474f] max-w-xs">There are no pending incoming Purchase Requests currently awaiting GSU review.</p>
                                     </div>
                                 </td>
                             </tr>
@@ -1069,63 +988,7 @@ new #[Layout('layouts.app')] class extends Component
             </div>
         @endif
 
-        {{-- GSU Triage Accept Modal --}}
-        @if($triagingFolderId)
-            <template x-teleport="body">
-                <div class="fixed inset-0 bg-[#001e40]/40 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-                    <div class="bg-white border border-[#eeedf2] rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4 animate-in fade-in zoom-in-95 duration-200">
-                        <div class="flex items-center gap-3 text-[#001e40]">
-                            <span class="material-symbols-outlined text-[28px]">done_all</span>
-                            <h4 class="text-lg font-bold">Accept & Route Purchase Request</h4>
-                        </div>
-                        <p class="text-xs text-[#43474f] leading-relaxed">
-                            You are accepting this ad-hoc Purchase Request and routing it to the signatories. Please assign or confirm the official sequential PR number.
-                        </p>
-                        <div class="space-y-1.5">
-                            <label class="block text-[10px] font-bold uppercase tracking-wider text-[#43474f]">Official PR Number <span class="text-[#ba1a1a]">*</span></label>
-                            <input type="text" wire:model="triagePrNumber" placeholder="PR-YYYY-XXXXX" class="w-full px-4 py-2.5 bg-[#f9f9fe] border border-[#c3c6d1] rounded-xl text-sm focus:ring-2 focus:ring-[#001e40] outline-none transition-all font-mono font-bold text-[#001e40]"/>
-                            @error('triagePrNumber') <p class="text-[11px] text-[#ba1a1a] mt-1 font-bold">{{ $message }}</p> @enderror
-                        </div>
-                        <div class="flex justify-end gap-3 pt-2">
-                            <button wire:click="$set('triagingFolderId', null)" class="px-4 py-2 bg-white border border-[#c3c6d1] hover:bg-[#f4f3f8] text-[#43474f] font-bold text-xs rounded-lg transition-all">
-                                Cancel
-                            </button>
-                            <button wire:click="acceptTriage" class="px-4 py-2 bg-[#001e40] hover:bg-[#001e40]/90 text-white font-bold text-xs rounded-lg shadow-sm transition-all text-center">
-                                Confirm & Route
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </template>
-        @endif
 
-        {{-- GSU Triage Return Modal --}}
-        @if($triageRejectionFolderId)
-            <div class="fixed inset-0 bg-[#001e40]/40 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-                <div class="bg-white border border-[#eeedf2] rounded-2xl max-w-lg w-full p-6 shadow-xl space-y-4 animate-in fade-in zoom-in-95 duration-200">
-                    <div class="flex items-center gap-3 text-[#ba1a1a]">
-                        <span class="material-symbols-outlined text-[28px]">assignment_return</span>
-                        <h4 class="text-lg font-bold">Return Purchase Request to Sender</h4>
-                    </div>
-                    <p class="text-xs text-[#43474f] leading-relaxed">
-                        Provide clear correction feedback or remarks for the compiler. The request status will revert to <strong>DRAFT</strong> and return to their inbox.
-                    </p>
-                    <div class="space-y-1">
-                        <label class="block text-[10px] font-bold uppercase tracking-wider text-[#43474f]">Correction Remarks / Feedback <span class="text-[#ba1a1a]">*</span></label>
-                        <textarea wire:model="triageRejectionRemarks" placeholder="Describe the corrections needed..." class="w-full px-4 py-3 bg-[#f9f9fe] border border-[#c3c6d1] rounded-xl text-sm focus:ring-2 focus:ring-[#001e40] outline-none transition-all resize-none min-h-[120px]"></textarea>
-                        @error('triageRejectionRemarks') <p class="text-[11px] text-[#ba1a1a] mt-1 font-bold">{{ $message }}</p> @enderror
-                    </div>
-                    <div class="flex justify-end gap-3 pt-2">
-                        <button wire:click="$set('triageRejectionFolderId', null)" class="px-4 py-2 bg-white border border-[#c3c6d1] hover:bg-[#f4f3f8] text-[#43474f] font-bold text-xs rounded-lg transition-all">
-                            Cancel
-                        </button>
-                        <button wire:click="rejectTriage" class="px-4 py-2 bg-[#ba1a1a] hover:bg-[#ba1a1a]/90 text-white font-bold text-xs rounded-lg shadow-sm transition-all text-center">
-                            Return PR
-                        </button>
-                    </div>
-                </div>
-            </div>
-        @endif
 
         {{-- Audit Trail History Modal --}}
         @if($viewingHistoryFolderId)
@@ -1279,10 +1142,72 @@ new #[Layout('layouts.app')] class extends Component
                                 </tbody>
                             </table>
                         </div>
+
+                        <!-- Attachments / Document Package Section -->
+                        @if($vf->attachments->isNotEmpty())
+                            <div class="space-y-3">
+                                <h4 class="text-[10px] uppercase font-bold tracking-wider text-[#43474f]/60">Document Package & Attachments</h4>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    @foreach($vf->attachments as $attach)
+                                        <div class="p-3 bg-white border border-[#eeedf2] rounded-xl flex items-center justify-between text-xs shadow-2xs">
+                                            <span class="flex items-center gap-2 truncate pr-2">
+                                                <span class="material-symbols-outlined text-[18px] text-[#001e40]/60">
+                                                    {{ str_starts_with($attach->attachment_type, 'SYSTEM_') ? 'auto_stories' : 'description' }}
+                                                </span>
+                                                <span class="truncate font-semibold text-[#001e40]">{{ $attach->original_name }}</span>
+                                                <span class="text-[9px] px-1.5 py-0.5 bg-[#eeedf2] text-[#43474f] rounded font-bold uppercase">{{ str_replace('SYSTEM_', '', $attach->attachment_type) }}</span>
+                                            </span>
+                                            <a href="{{ route('admin.file-stream', $attach->id) }}" target="_blank" class="font-bold text-[#1f477b] underline hover:text-[#001e40] shrink-0">View</a>
+                                        </div>
+                                    @endforeach
+                                </div>
+                            </div>
+                        @endif
                     </div>
                     
                     <!-- Modal Footer -->
-                    <div class="bg-white px-6 py-4 border-t border-[#eeedf2] rounded-b-2xl flex justify-end flex-shrink-0">
+                    <div class="bg-white px-6 py-4 border-t border-[#eeedf2] rounded-b-2xl flex justify-between items-center flex-shrink-0">
+                        <div class="flex items-center gap-3">
+                            @php
+                                $user = auth()->user();
+                                $empId = $user->employee?->id;
+                                $isGsuUser = $user->hasAnyRole(['Admin', 'Procurement Officer']);
+                                $isRecommender = ($empId && $empId === $vf->recommended_by_id && !$vf->recommended_signed_at);
+                                $isApprover = ($empId && $empId === $vf->approved_by_id && !$vf->approved_signed_at && $vf->recommended_signed_at);
+                            @endphp
+
+                            {{-- GSU Acceptance Action --}}
+                            @if($vf->status === 'SUBMITTED_TO_GSU' && $isGsuUser)
+                                <a href="{{ route('procurement.gsu.review', $vf->id) }}" class="px-4 py-2 bg-[#001e40] hover:bg-[#003272] text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 active:scale-95">
+                                    <span class="material-symbols-outlined text-[16px]">rate_review</span>
+                                    Open & Review Workspace
+                                </a>
+                            @endif
+
+                            {{-- Recommender Signatory Action --}}
+                            @if($vf->status === 'ROUTING' && $isRecommender)
+                                <button wire:click="approvePr('{{ $vf->id }}')" class="px-4 py-2 bg-green-700 hover:bg-green-800 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 active:scale-95">
+                                    <span class="material-symbols-outlined text-[16px]">draw</span>
+                                    Digitally Recommend
+                                </button>
+                                <button wire:click="startRejection('{{ $vf->id }}')" class="px-4 py-2 border border-[#ba1a1a] text-[#ba1a1a] hover:bg-red-50 font-bold text-xs rounded-xl transition-all flex items-center gap-1.5 active:scale-95">
+                                    <span class="material-symbols-outlined text-[16px]">assignment_return</span>
+                                    Return with Edits
+                                </button>
+                            @endif
+
+                            {{-- Approver Signatory Action --}}
+                            @if($vf->status === 'ROUTING' && $isApprover)
+                                <button wire:click="approvePr('{{ $vf->id }}')" class="px-4 py-2 bg-green-700 hover:bg-green-800 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 active:scale-95">
+                                    <span class="material-symbols-outlined text-[16px]">draw</span>
+                                    Digitally Approve & Lock
+                                </button>
+                                <button wire:click="startRejection('{{ $vf->id }}')" class="px-4 py-2 border border-[#ba1a1a] text-[#ba1a1a] hover:bg-red-50 font-bold text-xs rounded-xl transition-all flex items-center gap-1.5 active:scale-95">
+                                    <span class="material-symbols-outlined text-[16px]">assignment_return</span>
+                                    Return with Edits
+                                </button>
+                            @endif
+                        </div>
                         <button wire:click="closeDetails" class="px-5 py-2 bg-[#eeedf2] hover:bg-[#c3c6d1] text-[#43474f] font-bold text-xs rounded-xl transition-all active:scale-95">
                             Close Details
                         </button>

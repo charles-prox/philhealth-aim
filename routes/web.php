@@ -44,6 +44,10 @@ Volt::route('procurement/portal', 'procurement.custodian-portal')
     ->middleware(['auth'])
     ->name('procurement.portal');
 
+Volt::route('procurement/gsu-review/{folderId}', 'procurement.gsu-inbox-review')
+    ->middleware(['auth'])
+    ->name('procurement.gsu.review');
+
 Route::get('procurement/pr/{folder}/pdf', [\App\Http\Controllers\ProcurementController::class, 'viewPrPdf'])
     ->middleware(['auth'])
     ->name('procurement.pr.pdf');
@@ -175,7 +179,12 @@ Route::get('/admin/procurement/file-stream/{attachmentId}', function ($attachmen
     $attachment = \App\Models\ProcurementAttachment::findOrFail($attachmentId);
     
     // Explicit security check: Validate permission levels before displaying sensitive data
-    if (!auth()->user()->employee || !auth()->user()->employee->isAllowedToSignOrViewDocs()) {
+    $user = auth()->user();
+
+    // Procurement Officers and Admins always have access to procurement documents
+    $hasBypassRole = $user->hasAnyRole(['Admin', 'Procurement Officer']);
+
+    if (!$hasBypassRole && (!$user->employee || !$user->employee->isAllowedToSignOrViewDocs())) {
         abort(403, 'Unauthorized access to secure financial records.');
     }
 

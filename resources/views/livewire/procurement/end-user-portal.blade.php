@@ -25,6 +25,7 @@ new class extends Component
     public ?int $approvedById = null;
     public $fileOthers = [];
     public array $stagedFiles = [];
+    public array $stagedFileNames = [];
 
     // Search and Input State
     public string $search = '';
@@ -89,6 +90,7 @@ new class extends Component
     {
         $this->basket = [];
         $this->stagedFiles = [];
+        $this->stagedFileNames = [];
         $this->selectedAppLineId = null;
         $this->purpose = '';
         $this->recommendedById = null;
@@ -136,6 +138,7 @@ new class extends Component
                 break;
             }
             $this->stagedFiles[] = $file;
+            $this->stagedFileNames[] = pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME);
         }
 
         // Clear the upload slot so it is ready for the next drop/click
@@ -146,6 +149,7 @@ new class extends Component
     {
         if (isset($this->stagedFiles[$index])) {
             array_splice($this->stagedFiles, $index, 1);
+            array_splice($this->stagedFileNames, $index, 1);
         }
     }
 
@@ -364,16 +368,19 @@ new class extends Component
         }
 
         $this->validate([
-            'trackingNumber'   => 'required|string|max:50|unique:procurement_folders,tracking_number,' . ($this->folderId ?? 'NULL') . ',id',
-            'purpose'          => 'required|string|max:1000',
-            'recommendedById'  => 'required|integer|in:' . $validRecommenderIds,
-            'approvedById'     => 'required|integer|in:' . $validApproverIds,
-            'stagedFiles.*'    => 'nullable|file|mimes:pdf,docx,xlsx,png,jpg|max:10240',
+            'trackingNumber'      => 'required|string|max:50|unique:procurement_folders,tracking_number,' . ($this->folderId ?? 'NULL') . ',id',
+            'purpose'             => 'required|string|max:1000',
+            'recommendedById'     => 'required|integer|in:' . $validRecommenderIds,
+            'approvedById'        => 'required|integer|in:' . $validApproverIds,
+            'stagedFiles.*'       => 'nullable|file|mimes:pdf,docx,xlsx,png,jpg|max:10240',
+            'stagedFileNames.*'   => 'required|string|min:3|max:150',
         ], [
-            'recommendedById.in' => 'The selected recommending officer is not an authorized signatory for this PR.',
-            'approvedById.in'    => 'The selected approving officer is not an authorized signatory for this PR.',
+            'recommendedById.in'  => 'The selected recommending officer is not an authorized signatory for this PR.',
+            'approvedById.in'     => 'The selected approving officer is not an authorized signatory for this PR.',
             'stagedFiles.*.mimes' => 'The supporting attachments must be valid documents (PDF, DOCX, XLSX, PNG, JPG).',
             'stagedFiles.*.max'   => 'Supporting attachments must not exceed 10MB in size.',
+            'stagedFileNames.*.required' => 'Each uploaded document must have a descriptive name.',
+            'stagedFileNames.*.min'      => 'Document name must be at least 3 characters.',
         ]);
 
         if ($this->folder && $this->folder->status === 'RETURNED_FOR_COMPLIANCE' && !$this->folder->attachments()->where('attachment_type', 'USER_OTHER')->exists() && empty($this->stagedFiles)) {
@@ -484,6 +491,7 @@ new class extends Component
                     'tracking_number'              => $this->trackingNumber,
                     'overall_purpose'              => $this->purpose,
                     'status'                       => $status,
+                    'requested_signed_at'          => $submitToGsu ? now() : null,
                     'requesting_unit'              => $requestedEmployee?->office_division,
                     'requested_by_id'              => $requestedById,
                     'requested_by_designation'     => $requestedByDesignation,
@@ -501,6 +509,7 @@ new class extends Component
                     'procurement_method'           => 'Shopping',
                     'overall_purpose'              => $this->purpose,
                     'status'                       => $status,
+                    'requested_signed_at'          => $submitToGsu ? now() : null,
                     'requesting_unit'              => $requestedEmployee?->office_division,
                     'requested_by_id'              => $requestedById,
                     'requested_by_designation'     => $requestedByDesignation,
@@ -529,11 +538,17 @@ new class extends Component
                         'secure_procurement'
                     );
 
+                    $customName = trim($this->stagedFileNames[$index]);
+                    $extension = $extraFile->getClientOriginalExtension();
+                    if (!str_ends_with(strtolower($customName), '.' . strtolower($extension))) {
+                        $customName .= '.' . $extension;
+                    }
+
                     // Catalog file metadata
                     $folder->attachments()->create([
                         'attachment_type' => 'USER_OTHER',
                         'file_path' => $storedPath,
-                        'original_name' => $extraFile->getClientOriginalName(),
+                        'original_name' => $customName,
                         'mime_type' => $extraFile->getMimeType(),
                         'file_size' => $extraFile->getSize(),
                         'uploaded_by_employee_id' => $employeeId
@@ -562,8 +577,8 @@ new class extends Component
             // Create Log
             $logAction = $status === 'SUBMITTED_TO_GSU' ? 'SUBMITTED' : ($status === 'ROUTING' ? 'RESUBMITTED' : 'CREATED');
             $logRemarks = $status === 'SUBMITTED_TO_GSU' 
-                ? 'PR submitted to GSU Triage Box.' 
-                : ($status === 'ROUTING' ? 'PR resubmitted with corrections.' : 'PR draft saved.');
+                ? 'PR submitted to GSU Triage Box. The physical copies of the documents mentioned in the Cover Letter are enroute to the GSU Procurement Officer for triage and verification.' 
+                : ($status === 'ROUTING' ? 'PR resubmitted to GSU Triage Box with corrections. The corrected physical copies of the documents listed in the Cover Letter are enroute to the GSU Procurement Officer.' : 'PR draft compiled and successfully saved to the office registry.');
 
             \App\Models\ProcurementLog::create([
                 'procurement_folder_id' => $folder->id,
@@ -575,7 +590,7 @@ new class extends Component
             return $folder;
         });
 
-        \App\Jobs\GenerateProcurementDocumentsJob::dispatch($folder)->afterCommit();
+        \App\Jobs\GenerateProcurementDocumentsJob::dispatchSync($folder);
 
         $this->selectedIds = [];
         $this->basket = [];
@@ -1628,15 +1643,26 @@ new class extends Component
                     @if(!empty($this->stagedFiles))
                         <div class="space-y-2 mt-4">
                             <span class="text-[10px] font-bold text-[#43474f] uppercase tracking-wider block">Staged Attachments (Ready to Save)</span>
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 @foreach($this->stagedFiles as $index => $file)
-                                    <div class="p-3 bg-[#e0f2fe] text-[#0369a1] border border-[#bae6fd]/50 rounded-xl flex items-center justify-between text-xs font-semibold">
-                                        <span class="flex items-center gap-2 truncate pr-2">
-                                            <span class="material-symbols-outlined text-[18px]">draft</span>
-                                            <span class="truncate">{{ $file->getClientOriginalName() }}</span>
-                                            <span class="text-[9px] px-1.5 py-0.5 bg-sky-100 text-sky-800 rounded font-bold uppercase">Staged</span>
-                                        </span>
-                                        <button type="button" wire:click="removeStagedFile({{ $index }})" class="text-[#ba1a1a] hover:underline font-bold shrink-0">Remove</button>
+                                    <div class="p-4 bg-white border border-[#eeedf2] rounded-xl space-y-3 shadow-2xs">
+                                        <div class="flex items-center justify-between">
+                                            <span class="flex items-center gap-2 truncate text-xs font-semibold text-[#001e40]">
+                                                <span class="material-symbols-outlined text-[18px] text-[#001e40]/60">draft</span>
+                                                <span class="truncate" title="{{ $file->getClientOriginalName() }}">{{ $file->getClientOriginalName() }}</span>
+                                            </span>
+                                            <button type="button" wire:click="removeStagedFile({{ $index }})" class="text-xs font-bold text-[#ba1a1a] hover:underline shrink-0">Remove</button>
+                                        </div>
+                                        <div class="space-y-1">
+                                            <label class="text-[10px] font-bold text-[#43474f] uppercase tracking-wider block">Document Name <span class="text-red-600">*</span></label>
+                                            <input type="text" 
+                                                   wire:model="stagedFileNames.{{ $index }}" 
+                                                   placeholder="e.g. Technical Specification, Canvass Sheet" 
+                                                   class="w-full px-3 py-2 bg-[#f9f9fe] border border-[#c3c6d1] rounded-lg text-xs outline-none focus:ring-2 focus:ring-[#001e40] transition-all"/>
+                                            @error('stagedFileNames.' . $index)
+                                                <p class="text-[10px] font-bold text-[#ba1a1a] mt-0.5">{{ $message }}</p>
+                                            @enderror
+                                        </div>
                                     </div>
                                 @endforeach
                             </div>

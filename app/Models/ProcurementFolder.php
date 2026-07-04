@@ -96,7 +96,7 @@ class ProcurementFolder extends Model
 
         static::created(function ($folder) {
             \Illuminate\Support\Facades\DB::afterCommit(function () use ($folder) {
-                \App\Jobs\GenerateProcurementDocumentsJob::dispatch($folder);
+                \App\Jobs\GenerateProcurementDocumentsJob::dispatchSync($folder);
             });
         });
     }
@@ -135,6 +135,8 @@ class ProcurementFolder extends Model
         'created_by_id',
         'pdf_attachment_path',
         'current_signatory_id',
+        'gsu_accepted_at',
+        'gsu_accepted_by_id',
     ];
 
     protected $casts = [
@@ -144,6 +146,7 @@ class ProcurementFolder extends Model
         'requested_signed_at' => 'datetime',
         'recommended_signed_at' => 'datetime',
         'approved_signed_at' => 'datetime',
+        'gsu_accepted_at' => 'datetime',
     ];
 
     public function prItems()
@@ -245,7 +248,7 @@ class ProcurementFolder extends Model
             ]);
 
             // Re-compile core documents to stamp recommendation signature
-            \App\Jobs\GenerateProcurementDocumentsJob::dispatch($this)->afterCommit();
+            \App\Jobs\GenerateProcurementDocumentsJob::dispatchSync($this);
         } elseif (empty($this->approved_signed_at)) {
             $this->update([
                 'status' => 'APPROVED',
@@ -261,7 +264,7 @@ class ProcurementFolder extends Model
             ]);
 
             // Re-compile core documents to stamp approval signature
-            \App\Jobs\GenerateProcurementDocumentsJob::dispatch($this)->afterCommit();
+            \App\Jobs\GenerateProcurementDocumentsJob::dispatchSync($this);
         }
     }
 
