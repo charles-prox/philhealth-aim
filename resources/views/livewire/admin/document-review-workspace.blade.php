@@ -15,6 +15,9 @@ new #[Layout('layouts.app')] class extends Component
     public string $budgetPpaCode = '';
     public string $budgetCode = '';
 
+    public bool $hasOlderPending = false;
+    public ?ApprovalTask $oldestPendingTask = null;
+
     public function mount($taskId)
     {
         $employeeId = auth()->user()->employee_id;
@@ -23,6 +26,15 @@ new #[Layout('layouts.app')] class extends Component
         }
 
         $this->task = ApprovalTask::findOrFail($taskId);
+
+        $this->oldestPendingTask = ApprovalTask::where('target_employee_id', $employeeId)
+            ->where('status', 'PENDING')
+            ->oldest()
+            ->first();
+
+        if ($this->oldestPendingTask && $this->oldestPendingTask->id !== $this->task->id) {
+            $this->hasOlderPending = true;
+        }
 
         $this->isBudgetOfficer = ($employeeId === \App\Models\SignatoryRegistry::getActiveSignatoryFor('BUDGET_OFFICER'));
         if ($this->isBudgetOfficer) {
@@ -69,6 +81,11 @@ new #[Layout('layouts.app')] class extends Component
             throw new \Exception("Security Exception: Document validation context must be verified before sign-off.");
         }
 
+        if ($this->hasOlderPending) {
+            session()->flash('error', "FIFO Policy: You must sign the oldest pending task in your queue first.");
+            return;
+        }
+
         if ($this->task->status !== 'PENDING') {
             session()->flash('error', "This task has already been processed.");
             return $this->redirectRoute('admin.unified-desk');
@@ -111,6 +128,11 @@ new #[Layout('layouts.app')] class extends Component
             'rejectionRemarks.required' => 'Operational Rule: You must provide clear explanatory remarks for a document return.',
             'rejectionRemarks.min' => 'Please provide comprehensive notes (min 10 characters) so the user knows how to achieve compliance.'
         ]);
+
+        if ($this->hasOlderPending) {
+            session()->flash('error', "FIFO Policy: You must sign the oldest pending task in your queue first.");
+            return;
+        }
 
         if ($this->task->status !== 'PENDING') {
             session()->flash('error', "This task has already been processed.");
@@ -277,8 +299,26 @@ new #[Layout('layouts.app')] class extends Component
                 
                 <div class="p-6 space-y-6">
                     @if($task->status === 'PENDING')
-                        {{-- Approve Segment --}}
-                        <div class="space-y-3">
+                        @if($hasOlderPending)
+                            <div class="p-4 bg-amber-50 border border-amber-200 rounded-xl space-y-3 text-xs leading-relaxed text-amber-800">
+                                <div class="font-bold flex items-center gap-1.5 text-amber-900">
+                                    <span class="material-symbols-outlined text-[18px]">warning</span>
+                                    FIFO Policy Active
+                                </div>
+                                <p>
+                                    Under the First-In-First-Out (FIFO) approval policy, you must review and sign the oldest document in your queue before you can process this request.
+                                </p>
+                                <div class="pt-2">
+                                    <a href="{{ route('admin.document-workspace', $oldestPendingTask->id) }}" 
+                                       class="w-full inline-flex items-center justify-center gap-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold py-2.5 px-3 rounded-xl shadow-sm transition-all text-xs active:scale-95">
+                                        <span class="material-symbols-outlined text-[14px]">arrow_right_alt</span>
+                                        Open Oldest Task ({{ $oldestPendingTask->tracking_number }})
+                                    </a>
+                                </div>
+                            </div>
+                        @else
+                            {{-- Approve Segment --}}
+                            <div class="space-y-3">
                             @if($isBudgetOfficer)
                                 <div class="p-4 bg-blue-50 border border-blue-200 rounded-xl space-y-3 mb-2 text-xs">
                                     <div class="font-bold text-[#001e40] flex items-center gap-1.5">
@@ -370,6 +410,7 @@ new #[Layout('layouts.app')] class extends Component
                                 <span>Submit Rejection / Return</span>
                             </button>
                         </div>
+                        @endif
                     @else
                         {{-- Task Already Processed --}}
                         <div class="text-center py-6 space-y-4">

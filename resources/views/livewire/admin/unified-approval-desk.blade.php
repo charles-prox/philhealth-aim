@@ -22,7 +22,7 @@ new #[Layout('layouts.app')] class extends Component
     {
         $query = ApprovalTask::where('target_employee_id', auth()->user()->employee_id);
         if ($this->activeTab === 'PENDING') {
-            return $query->where('status', 'PENDING')->latest()->get();
+            return $query->where('status', 'PENDING')->oldest()->get();
         } else {
             return $query->whereIn('status', ['SIGNED', 'REJECTED'])->latest()->get();
         }
