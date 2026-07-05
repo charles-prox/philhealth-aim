@@ -41,18 +41,20 @@ class ProcurementPdfService
         // Purge any existing SYSTEM_RFQ attachments to clear them from UI tabs
         $folder->attachments()->where('attachment_type', 'SYSTEM_RFQ')->delete();
 
+        $docName = $folder->pr_number ?: $folder->tracking_number;
+
         // Create or update log records uniquely to prevent duplication
         $attachments = [
             'SYSTEM_PR' => [
                 'file_path' => $prPath, 
-                'original_name' => "PR_{$folder->tracking_number}.pdf", 
+                'original_name' => "PR_{$docName}.pdf", 
                 'mime_type' => 'application/pdf', 
                 'file_size' => $disk->exists($prPath) ? $disk->size($prPath) : 0, 
                 'uploaded_by_employee_id' => $employeeId
             ],
             'SYSTEM_COVER_LETTER' => [
                 'file_path' => $coverPath, 
-                'original_name' => "Cover_Letter_{$folder->tracking_number}.pdf", 
+                'original_name' => "Cover_Letter_{$docName}.pdf", 
                 'mime_type' => 'application/pdf', 
                 'file_size' => $disk->exists($coverPath) ? $disk->size($coverPath) : 0, 
                 'uploaded_by_employee_id' => $employeeId
@@ -62,7 +64,7 @@ class ProcurementPdfService
         if ($hasABC) {
             $attachments['SYSTEM_ABC'] = [
                 'file_path' => $abcPath, 
-                'original_name' => "ABC_Summary_{$folder->tracking_number}.pdf", 
+                'original_name' => "ABC_Summary_{$docName}.pdf", 
                 'mime_type' => 'application/pdf', 
                 'file_size' => $disk->exists($abcPath) ? $disk->size($abcPath) : 0, 
                 'uploaded_by_employee_id' => $employeeId

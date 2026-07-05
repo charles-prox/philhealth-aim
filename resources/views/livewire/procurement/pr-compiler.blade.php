@@ -30,15 +30,15 @@ new class extends Component
             ->exists();
 
         if (!$appGateCleared) {
-            $this->redirectRoute('procurement', navigate: true);
-            session()->flash('error', "PR Creation Suspended: The Annual Procurement Plan (APP) for fiscal year {$currentYear} has not been uploaded or approved by the Admin Head.");
+            // Parent already checks APP gate before mounting us; just return silently.
             return;
         }
 
         if ($folderId) {
             $folder = \App\Models\ProcurementFolder::findOrFail($folderId);
             if ($folder->status === 'CANCELLED' || $folder->status === 'CANCELLED_BY_USER') {
-                abort(403, 'Access Denied: This Purchase Request has been permanently archived and cannot be modified.');
+                // Silently return — parent should not have opened us for a cancelled folder.
+                return;
             }
         }
 
@@ -497,7 +497,8 @@ new class extends Component
         
         \App\Jobs\GenerateProcurementDocumentsJob::dispatchSync($folder);
 
-        $this->dispatch('pr-created');
+        session()->flash('status', 'PR compiled successfully! Please review and sign the documents before submitting.');
+        return $this->redirectRoute('procurement.review', ['folderId' => $folder->id], navigate: true);
     }
 
     // -------------------------------------------------------------------------

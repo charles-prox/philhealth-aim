@@ -10,6 +10,10 @@ new #[Layout('layouts.app')] class extends Component
     public $rejectionType = ''; // 'EDIT', 'COMPLIANCE', 'PERMANENT'
     public $rejectionRemarks = '';
     public int $activeTab = 0;
+    
+    public bool $isBudgetOfficer = false;
+    public string $budgetPpaCode = '';
+    public string $budgetCode = '';
 
     public function mount($taskId)
     {
@@ -19,6 +23,13 @@ new #[Layout('layouts.app')] class extends Component
         }
 
         $this->task = ApprovalTask::findOrFail($taskId);
+
+        $this->isBudgetOfficer = ($employeeId === \App\Models\SignatoryRegistry::getActiveSignatoryFor('BUDGET_OFFICER'));
+        if ($this->isBudgetOfficer) {
+            $folder = $this->task->document;
+            $this->budgetPpaCode = $folder->budget_ppa_code ?: ($folder->prItems->first()?->cobItem?->sub_ppa_code ?? $folder->prItems->first()?->cobItem?->ppa_code ?? '');
+            $this->budgetCode = $folder->budget_code ?: ($folder->prItems->first()?->cobItem?->account ?? $folder->prItems->first()?->cobItem?->exp_desc ?? '');
+        }
 
         // Security Guard: Check if the logged in user is the target signatory
         if ($this->task->target_employee_id !== $employeeId) {
@@ -61,6 +72,21 @@ new #[Layout('layouts.app')] class extends Component
         if ($this->task->status !== 'PENDING') {
             session()->flash('error', "This task has already been processed.");
             return $this->redirectRoute('admin.unified-desk');
+        }
+
+        if ($this->isBudgetOfficer) {
+            $this->validate([
+                'budgetPpaCode' => 'required|string|max:100',
+                'budgetCode' => 'required|string|max:100',
+            ], [
+                'budgetPpaCode.required' => 'Operational Rule: You must verify and enter the PPA Code.',
+                'budgetCode.required' => 'Operational Rule: You must verify and enter the Budget Code.',
+            ]);
+
+            $this->task->document->update([
+                'budget_ppa_code' => $this->budgetPpaCode,
+                'budget_code' => $this->budgetCode,
+            ]);
         }
 
         \DB::transaction(function () {
@@ -253,6 +279,30 @@ new #[Layout('layouts.app')] class extends Component
                     @if($task->status === 'PENDING')
                         {{-- Approve Segment --}}
                         <div class="space-y-3">
+                            @if($isBudgetOfficer)
+                                <div class="p-4 bg-blue-50 border border-blue-200 rounded-xl space-y-3 mb-2 text-xs">
+                                    <div class="font-bold text-[#001e40] flex items-center gap-1.5">
+                                        <span class="material-symbols-outlined text-[16px]">account_balance_wallet</span>
+                                        Budget Code Certification Stamp
+                                    </div>
+                                    <p class="text-[10px] text-[#43474f] leading-relaxed">
+                                        Confirm and verify the PPA Code and Budget Code below. These will be stamped directly onto the PR document.
+                                    </p>
+                                    <div class="space-y-2">
+                                        <div>
+                                            <label class="block text-[10px] font-bold uppercase tracking-wider text-[#43474f] mb-1">PPA Code <span class="text-red-600">*</span></label>
+                                            <input type="text" wire:model="budgetPpaCode" class="w-full text-xs px-3 py-2 bg-white border border-[#c3c6d1] rounded-lg outline-none focus:ring-1 focus:ring-[#001e40] font-mono" placeholder="e.g. A.XII.f.X.a.01">
+                                            @error('budgetPpaCode') <span class="text-[10px] text-[#ba1a1a] font-bold mt-0.5 block">{{ $message }}</span> @enderror
+                                        </div>
+                                        <div>
+                                            <label class="block text-[10px] font-bold uppercase tracking-wider text-[#43474f] mb-1">Budget Code / Account <span class="text-red-600">*</span></label>
+                                            <input type="text" wire:model="budgetCode" class="w-full text-xs px-3 py-2 bg-white border border-[#c3c6d1] rounded-lg outline-none focus:ring-1 focus:ring-[#001e40] font-mono" placeholder="e.g. Traveling Expenses">
+                                            @error('budgetCode') <span class="text-[10px] text-[#ba1a1a] font-bold mt-0.5 block">{{ $message }}</span> @enderror
+                                        </div>
+                                    </div>
+                                </div>
+                            @endif
+
                             <div class="p-3 bg-emerald-50 text-emerald-800 rounded-xl border border-emerald-200 text-xs leading-relaxed">
                                 <span class="font-bold flex items-center gap-1 mb-1">
                                     <span class="material-symbols-outlined text-[16px]">verified</span> Physical & Digital Verification
@@ -261,9 +311,11 @@ new #[Layout('layouts.app')] class extends Component
                             </div>
                             
                             <button wire:click="executeApprovalSignature" 
-                                    class="w-full flex items-center justify-center gap-2 bg-[#001e40] hover:bg-[#003272] text-white font-bold py-3 px-4 rounded-xl shadow-md transition-all active:scale-95 text-sm">
-                                <span class="material-symbols-outlined">draw</span>
-                                Approve & Sign Document
+                                    wire:loading.attr="disabled"
+                                    class="w-full flex items-center justify-center gap-2 bg-[#001e40] hover:bg-[#003272] disabled:bg-[#001e40]/70 text-white font-bold py-3 px-4 rounded-xl shadow-md transition-all active:scale-95 text-sm">
+                                <span class="material-symbols-outlined animate-spin" wire:loading wire:target="executeApprovalSignature" style="display:none">progress_activity</span>
+                                <span class="material-symbols-outlined" wire:loading.remove wire:target="executeApprovalSignature">draw</span>
+                                <span>Approve & Sign Document</span>
                             </button>
                         </div>
 
@@ -311,9 +363,11 @@ new #[Layout('layouts.app')] class extends Component
                             </div>
 
                             <button wire:click="submitDocumentRejection"
-                                    class="w-full flex items-center justify-center gap-1.5 bg-[#ba1a1a] hover:bg-[#93000a] text-white font-bold py-2.5 px-4 rounded-xl shadow-md transition-all active:scale-95 text-xs">
-                                <span class="material-symbols-outlined text-[16px]">assignment_return</span>
-                                Submit Rejection / Return
+                                    wire:loading.attr="disabled"
+                                    class="w-full flex items-center justify-center gap-1.5 bg-[#ba1a1a] hover:bg-[#93000a] disabled:bg-[#ba1a1a]/70 text-white font-bold py-2.5 px-4 rounded-xl shadow-md transition-all active:scale-95 text-xs">
+                                <span class="material-symbols-outlined animate-spin text-[16px]" wire:loading wire:target="submitDocumentRejection" style="display:none">progress_activity</span>
+                                <span class="material-symbols-outlined text-[16px]" wire:loading.remove wire:target="submitDocumentRejection">assignment_return</span>
+                                <span>Submit Rejection / Return</span>
                             </button>
                         </div>
                     @else

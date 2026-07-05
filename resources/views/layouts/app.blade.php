@@ -24,15 +24,22 @@
 
         <script>
             (function () {
-                const collapsed = localStorage.getItem('sidebar_collapsed') === 'true';
-                if (collapsed) {
-                    document.documentElement.classList.add('sidebar-collapsed');
+                function syncSidebarClass() {
+                    const collapsed = localStorage.getItem('sidebar_collapsed') === 'true';
+                    document.documentElement.classList.toggle('sidebar-collapsed', collapsed);
                 }
+                // Run immediately on page load
+                syncSidebarClass();
+                // Re-sync on every wire:navigate SPA navigation
+                document.addEventListener('livewire:navigated', syncSidebarClass);
             })();
         </script>
 
         <style>
             /* Prevent Cumulative Layout Shift (CLS) before Alpine.js boots */
+            aside {
+                width: 16rem; /* w-64 default */
+            }
             .sidebar-collapsed aside {
                 width: 5rem !important; /* w-20 */
             }
@@ -61,6 +68,7 @@
                 document.documentElement.classList.toggle('sidebar-collapsed', this.sidebarCollapsed);
             }
           }"
+          x-init="document.documentElement.classList.toggle('sidebar-collapsed', sidebarCollapsed)"
           @keydown.window.prevent.ctrl.k="searchOpen = true" 
           @keydown.window.prevent.cmd.k="searchOpen = true"
           class="flex h-screen overflow-hidden w-full">
@@ -68,8 +76,8 @@
             <livewire:layout.navigation />
 
             <!-- Main Workspace -->
-            <div class="main-workspace flex-1 flex flex-col min-w-0 overflow-hidden transition-all duration-300 md:ml-64" 
-                 :class="sidebarCollapsed ? 'md:ml-20' : 'md:ml-64'">
+            <!-- Margin is driven entirely by CSS: .sidebar-collapsed .main-workspace / .main-workspace rules in <head> -->
+            <div class="main-workspace flex-1 flex flex-col min-w-0 overflow-hidden transition-all duration-300">
                 <!-- Top App Bar -->
                 <header class="flex justify-between items-center px-6 h-14 w-full sticky top-0 z-10 bg-white border-b border-[#c3c6d1]">
                     <div class="flex items-center gap-4">

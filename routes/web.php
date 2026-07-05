@@ -48,6 +48,10 @@ Volt::route('procurement/gsu-review/{folderId}', 'procurement.gsu-inbox-review')
     ->middleware(['auth'])
     ->name('procurement.gsu.review');
 
+Volt::route('procurement/review/{folderId}', 'procurement.custodian-review')
+    ->middleware(['auth'])
+    ->name('procurement.review');
+
 Route::get('procurement/pr/{folder}/pdf', [\App\Http\Controllers\ProcurementController::class, 'viewPrPdf'])
     ->middleware(['auth'])
     ->name('procurement.pr.pdf');

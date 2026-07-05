@@ -30,8 +30,6 @@ new #[Layout('layouts.app')] class extends Component
     // Action and dialog state
     public ?string $editingFolderId = null;
     public ?string $confirmingDeleteId = null;
-    public ?string $rejectingFolderId = null;
-    public string $rejectionRemarks = '';
     public ?string $viewingHistoryFolderId = null;
     public ?string $viewingFolderId = null;
 
@@ -108,7 +106,8 @@ new #[Layout('layouts.app')] class extends Component
 
         $this->editingFolderId = null;
         $this->isCreatingPr = true;
-        $this->dispatch('open-pr-creation');
+        // Note: no dispatch('open-pr-creation') — the :key prop on the sub-component
+        // forces a fresh mount automatically when isCreatingPr flips to true.
     }
 
     public function editPr($id)
@@ -135,8 +134,7 @@ new #[Layout('layouts.app')] class extends Component
         $this->successMessage = null;
         $this->editingFolderId = $id;
         $this->isCreatingPr = true;
-        
-        $this->dispatch('open-pr-creation', folderId: $id);
+        // Note: no dispatch needed — the :key prop on the sub-component handles re-mount.
     }
 
     public function submitForApproval($id)
@@ -177,99 +175,6 @@ new #[Layout('layouts.app')] class extends Component
         $this->successMessage = "PR submitted & routed for signature successfully!";
     }
 
-    public function approvePr($id)
-    {
-        $this->viewingFolderId = null;
-        $folder = ProcurementFolder::findOrFail($id);
-
-        $actor = auth()->user()->employee;
-        if (!$actor) {
-            $this->errorMessage = "System error: Your account is not linked to an Employee record. Please contact the administrator.";
-            return;
-        }
-
-        DB::transaction(function () use ($folder, $actor) {
-            $isRecommender = $folder->current_signatory_id === $actor->id && !$folder->recommended_signed_at;
-            $isApprover = $folder->current_signatory_id === $actor->id && $folder->recommended_signed_at;
-
-            $updates = [];
-            $action = '';
-            $remarks = '';
-
-            if ($isRecommender && !$folder->recommended_signed_at) {
-                $updates['recommended_signed_at'] = now();
-                $action = 'RECOMMENDED';
-                $remarks = 'Purchase Request recommended and digitally signed by the division Recommending Officer. Routed to the Regional Vice President for final approval.';
-                $this->successMessage = "PR recommended successfully!";
-            }
-
-            if ($isApprover) {
-                $updates['status'] = 'APPROVED';
-                $updates['approved_signed_at'] = now();
-                $action = 'APPROVED';
-                $remarks = 'Purchase Request approved and digitally signed by the Regional Vice President. Document package locked for procurement processing and auditing.';
-                $this->successMessage = "PR approved successfully and permanently locked!";
-            }
-
-            if (!empty($updates)) {
-                $folder->update($updates);
-                if ($folder->pr_number) {
-                    \Illuminate\Support\Facades\Storage::disk('public')->delete("pr/{$folder->pr_number}.pdf");
-                }
-                \App\Models\ProcurementLog::create([
-                    'procurement_folder_id' => $folder->id,
-                    'action' => $action,
-                    'actor_id' => $actor->id,
-                    'remarks' => $remarks,
-                ]);
-            }
-        });
-    }
-
-    public function startRejection($id)
-    {
-        $this->viewingFolderId = null;
-        $this->rejectingFolderId = $id;
-        $this->rejectionRemarks = '';
-    }
-
-    public function rejectPr()
-    {
-        $this->validate([
-            'rejectionRemarks' => 'required|string|max:1000',
-        ]);
-
-        $folder = ProcurementFolder::findOrFail($this->rejectingFolderId);
-
-        $actor = auth()->user()->employee;
-        if (!$actor) {
-            $this->errorMessage = "System error: Your account is not linked to an Employee record. Please contact the administrator.";
-            return;
-        }
-
-        DB::transaction(function () use ($folder, $actor) {
-            $folder->update([
-                'status' => 'DRAFT',
-                'recommended_signed_at' => null,
-                'approved_signed_at' => null,
-            ]);
-
-            if ($folder->pr_number) {
-                \Illuminate\Support\Facades\Storage::disk('public')->delete("pr/{$folder->pr_number}.pdf");
-            }
-
-            \App\Models\ProcurementLog::create([
-                'procurement_folder_id' => $folder->id,
-                'action' => 'REJECTED',
-                'actor_id' => $actor->id,
-                'remarks' => $this->rejectionRemarks,
-            ]);
-        });
-
-        $this->successMessage = "PR has been returned to DRAFT with feedback.";
-        $this->rejectingFolderId = null;
-        $this->rejectionRemarks = '';
-    }
 
     public function confirmDelete($id)
     {
@@ -629,7 +534,7 @@ new #[Layout('layouts.app')] class extends Component
                     <div class="flex items-center gap-3">
                         <div class="relative">
                             <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[#43474f] text-[18px]">search</span>
-                            <input type="text" wire:model.live.debounce.300ms="search" placeholder="Search PR or supplier..." class="pl-9 pr-4 py-2.5 bg-white border border-[#c3c6d1] rounded-lg text-sm focus:ring-2 focus:ring-[#001e40] outline-none transition-all w-56 placeholder-[#43474f]/40"/>
+                            <input type="text" wire:model.live.debounce.300ms="search" placeholder="Search PR or purpose..." class="pl-9 pr-4 py-2.5 bg-white border border-[#c3c6d1] rounded-lg text-sm focus:ring-2 focus:ring-[#001e40] outline-none transition-all w-56 placeholder-[#43474f]/40"/>
                         </div>
                         <x-primary-button variant="secondary" icon="filter_list" class="!px-3" />
                         <x-primary-button variant="secondary" icon="download" class="!px-3" />
@@ -642,18 +547,33 @@ new #[Layout('layouts.app')] class extends Component
                                 <th class="p-table-cell-padding text-[11px] font-bold text-[#001e40] uppercase tracking-wider">Tracking Number</th>
                                 <th class="p-table-cell-padding text-[11px] font-bold text-[#001e40] uppercase tracking-wider">PR Number</th>
                                 <th class="p-table-cell-padding text-[11px] font-bold text-[#001e40] uppercase tracking-wider">Date Requested</th>
-                                <th class="p-table-cell-padding text-[11px] font-bold text-[#001e40] uppercase tracking-wider">Supplier Name</th>
+                                <th class="p-table-cell-padding text-[11px] font-bold text-[#001e40] uppercase tracking-wider">Purpose</th>
                                 <th class="p-table-cell-padding text-[11px] font-bold text-[#001e40] uppercase tracking-wider">Status</th>
                                 <th class="p-table-cell-padding text-[11px] font-bold text-[#001e40] uppercase tracking-wider text-right">Actions</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-[#c3c6d1] text-[13px]">
-                            @forelse($folders as $folder)
+                           @forelse($folders as $folder)
                             <tr class="hover:bg-[#f4f3f8] transition-colors">
                                 <td class="p-table-cell-padding font-bold text-[#43474f] font-mono text-xs">{{ $folder->tracking_number }}</td>
                                 <td class="p-table-cell-padding font-bold text-[#001e40]">{{ $folder->pr_number ?? '—' }}</td>
                                 <td class="p-table-cell-padding text-[#1a1c1f]">{{ $folder->created_at->format('M d, Y') }}</td>
-                                <td class="p-table-cell-padding text-[#1a1c1f]">{{ $folder->purchaseOrder?->supplier?->name ?? '—' }}</td>
+                                <td class="p-table-cell-padding text-[#1a1c1f] relative group">
+                                    @php
+                                        $purposeLines = explode("\n", trim($folder->overall_purpose ?: 'No purpose specified'));
+                                        $firstLine = trim($purposeLines[0] ?? '');
+                                        $hasMultipleLines = count($purposeLines) > 1 || strlen($firstLine) > 40;
+                                        $displayPurpose = Str::limit($firstLine, 40) . ($hasMultipleLines ? '...' : '');
+                                    @endphp
+                                    <div class="cursor-help font-medium hover:text-[#001e40] transition-colors">
+                                        {{ $displayPurpose }}
+                                    </div>
+                                    <!-- Custom Hover Tooltip (Scrollable) -->
+                                    <div class="absolute left-4 top-full mt-1 hidden group-hover:block w-80 max-h-36 overflow-y-auto bg-[#001e40] text-white text-[11px] p-3 rounded-xl shadow-xl border border-white/10 z-50 whitespace-pre-line custom-scrollbar">
+                                        <div class="font-bold text-[9px] uppercase tracking-wider text-white/50 mb-1 border-b border-white/10 pb-1">Full Purpose</div>
+                                        {{ $folder->overall_purpose ?: 'No purpose specified' }}
+                                    </div>
+                                </td>
                                 <td class="p-table-cell-padding">
                                     @php
                                         $statusColors = [
@@ -717,10 +637,10 @@ new #[Layout('layouts.app')] class extends Component
                                                         @if($folder->status === 'DRAFT')
                                                             <div class="h-px bg-[#eeedf2] my-1"></div>
                                                             {{-- Route for Signature --}}
-                                                            <button wire:click="submitForApproval('{{ $folder->id }}')" class="flex items-center gap-2.5 w-full px-3 py-2 text-xs font-bold text-[#1f477b] hover:bg-blue-50 rounded-lg transition-all whitespace-nowrap">
-                                                                <span class="material-symbols-outlined text-[18px]">send</span>
-                                                                <span>Submit & Route</span>
-                                                            </button>
+                                                            <a href="{{ route('procurement.review', $folder->id) }}" wire:navigate class="flex items-center gap-2.5 w-full px-3 py-2 text-xs font-bold text-[#1f477b] hover:bg-blue-50 rounded-lg transition-all whitespace-nowrap">
+                                                                 <span class="material-symbols-outlined text-[18px]">rate_review</span>
+                                                                 <span>Sign & Submit to GSU</span>
+                                                            </a>
 
                                                             {{-- Edit Draft --}}
                                                             <button wire:click="editPr('{{ $folder->id }}')" class="flex items-center gap-2.5 w-full px-3 py-2 text-xs font-bold text-[#001e40] hover:bg-[#f4f3f8] hover:text-black rounded-lg transition-all whitespace-nowrap">
@@ -735,20 +655,7 @@ new #[Layout('layouts.app')] class extends Component
                                                             </button>
                                                         @endif
 
-                                                        @if($folder->status === 'ROUTING')
-                                                            <div class="h-px bg-[#eeedf2] my-1"></div>
-                                                            {{-- Approve --}}
-                                                            <button wire:click="approvePr('{{ $folder->id }}')" class="flex items-center gap-2.5 w-full px-3 py-2 text-xs font-bold text-green-700 hover:bg-green-50 rounded-lg transition-all whitespace-nowrap">
-                                                                <span class="material-symbols-outlined text-[18px]">check_circle</span>
-                                                                <span>Approve & Lock</span>
-                                                            </button>
 
-                                                            {{-- Return with Edits --}}
-                                                            <button wire:click="startRejection('{{ $folder->id }}')" class="flex items-center gap-2.5 w-full px-3 py-2 text-xs font-bold text-[#ba1a1a] hover:bg-red-50 rounded-lg transition-all whitespace-nowrap">
-                                                                <span class="material-symbols-outlined text-[18px]">assignment_return</span>
-                                                                <span>Return with Edits</span>
-                                                            </button>
-                                                        @endif
                                                     </div>
                                                 </div>
                                             </template>
@@ -900,18 +807,16 @@ new #[Layout('layouts.app')] class extends Component
             </div>
         </div>
         @endif
-        </div>
 
+        </div> {{-- Close x-show="!isCreatingPr" --}}
+    </div> {{-- Close p-container-padding --}}
 
-
+        {{-- PR Compiler Workspace Modal --}}
         @if($isCreatingPr)
-        </div>
-    </div>
-               {{-- PR Compiler Workspace Modal --}}
-            <div class="fixed inset-0 bg-[#001e40]/40 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
-                <div class="bg-[#f1f3f6] border border-[#eeedf2] rounded-2xl max-w-7xl w-full shadow-2xl animate-in fade-in zoom-in-95 duration-200 relative flex flex-col my-8 h-[90vh]">
-                    <!-- Modal Header -->
-                    <div class="bg-white px-6 py-4 flex justify-between items-center border-b border-[#eeedf2] rounded-t-2xl flex-shrink-0">
+            <div class="fixed inset-0 bg-[#001e40]/40 backdrop-blur-md z-50 flex items-center justify-center p-4 overflow-y-auto">
+                <div class="bg-[#f1f3f6] border border-[#eeedf2] rounded-xl max-w-7xl w-full shadow-2xl animate-in fade-in zoom-in-95 duration-200 relative flex flex-col my-8 h-[90vh]">
+                    {{-- Modal Header --}}
+                    <div class="bg-white px-6 py-4 flex justify-between items-center border-b border-[#eeedf2] rounded-t-xl flex-shrink-0">
                         @php
                             $editingFolder = $editingFolderId ? \App\Models\ProcurementFolder::find($editingFolderId) : null;
                         @endphp
@@ -929,13 +834,14 @@ new #[Layout('layouts.app')] class extends Component
                         </button>
                     </div>
 
-                    <!-- Modal Body (Scrollable) -->
-                    <div class="overflow-y-auto px-6 py-5 flex-1">
-                         <livewire:procurement.pr-compiler :folder-id="$editingFolderId" :key="$editingFolderId ?? 'new-pr'" />
+                    {{-- Modal Body (Scrollable) --}}
+                    <div class="overflow-y-auto px-6 flex-1">
+                        <livewire:procurement.pr-compiler :folder-id="$editingFolderId" :key="$editingFolderId ?? 'new-pr'" />
                     </div>
                 </div>
             </div>
         @endif
+
 
         {{-- Delete Confirmation Modal --}}
         @if($confirmingDeleteId)
@@ -960,33 +866,7 @@ new #[Layout('layouts.app')] class extends Component
             </div>
         @endif
 
-        {{-- Rejection Modal --}}
-        @if($rejectingFolderId)
-            <div class="fixed inset-0 bg-[#001e40]/40 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-                <div class="bg-white border border-[#eeedf2] rounded-2xl max-w-lg w-full p-6 shadow-xl space-y-4 animate-in fade-in zoom-in-95 duration-200">
-                    <div class="flex items-center gap-3 text-[#ba1a1a]">
-                        <span class="material-symbols-outlined text-[28px]">assignment_return</span>
-                        <h4 class="text-lg font-bold">Return Purchase Request with Edits</h4>
-                    </div>
-                    <p class="text-xs text-[#43474f] leading-relaxed">
-                        Provide specific correction remarks or instructions for the requesting user. The PR folder status will degrade back to <strong>DRAFT</strong> and fields will be unlocked.
-                    </p>
-                    <div class="space-y-1">
-                        <label class="block text-[10px] font-bold uppercase tracking-wider text-[#43474f]">Corrective Feedback / Remarks <span class="text-[#ba1a1a]">*</span></label>
-                        <textarea wire:model="rejectionRemarks" placeholder="Enter corrective feedback here..." class="w-full px-4 py-3 bg-[#f9f9fe] border border-[#c3c6d1] rounded-xl text-sm focus:ring-2 focus:ring-[#001e40] outline-none transition-all resize-none min-h-[120px]"></textarea>
-                        @error('rejectionRemarks') <p class="text-[11px] text-[#ba1a1a] mt-1">{{ $message }}</p> @enderror
-                    </div>
-                    <div class="flex justify-end gap-3 pt-2">
-                        <button wire:click="$set('rejectingFolderId', null)" class="px-4 py-2 bg-white border border-[#c3c6d1] hover:bg-[#f4f3f8] text-[#43474f] font-bold text-xs rounded-lg transition-all">
-                            Cancel
-                        </button>
-                        <button wire:click="rejectPr" class="px-4 py-2 bg-[#ba1a1a] hover:bg-[#ba1a1a]/90 text-white font-bold text-xs rounded-lg shadow-sm transition-all text-center">
-                            Return with Edits
-                        </button>
-                    </div>
-                </div>
-            </div>
-        @endif
+
 
 
 
@@ -1089,10 +969,48 @@ new #[Layout('layouts.app')] class extends Component
                             <div class="bg-white p-4 border border-[#eeedf2] rounded-xl space-y-2">
                                 <h4 class="text-[10px] uppercase font-bold tracking-wider text-[#43474f]/60">Operational Details</h4>
                                 <div class="space-y-1.5 text-xs text-[#001e40]">
-                                    <div><strong class="text-[#43474f]">PR Number:</strong> {{ $vf->pr_number ?: 'Not assigned' }}</div>
+                                    <div>
+                                        <strong class="text-[#43474f]">PR Number:</strong> 
+                                        @if($vf->pr_number)
+                                            <span class="px-2 py-0.5 bg-blue-100 text-[#001e40] rounded font-bold font-mono text-[11px] border border-blue-200 ml-1">{{ $vf->pr_number }}</span>
+                                        @else
+                                            <span class="px-2 py-0.5 bg-[#eeedf2] text-[#43474f]/60 rounded italic text-[11px] ml-1">Not assigned</span>
+                                        @endif
+                                    </div>
                                     <div><strong class="text-[#43474f]">Procurement Method:</strong> {{ $vf->procurement_method ?: 'Shopping' }}</div>
-                                    <div><strong class="text-[#43474f]">Created By:</strong> {{ $vf->created_at ? $vf->created_at->format('Y-m-d H:i') : '' }}</div>
+                                    <div><strong class="text-[#43474f]">Created At:</strong> {{ $vf->created_at ? $vf->created_at->format('Y-m-d H:i') : '' }}</div>
                                 </div>
+
+                                @php
+                                    $uniqueAppLines = $vf->prItems->map(fn($item) => $item->appLineItem)->filter()->unique('id');
+                                @endphp
+                                @if($uniqueAppLines->isNotEmpty())
+                                    <div class="mt-4 pt-3 border-t border-[#eeedf2] space-y-2">
+                                        <h5 class="text-[9px] uppercase font-bold tracking-wider text-[#43474f]/60 mb-2">Sourced APP Line Items</h5>
+                                        @foreach($uniqueAppLines as $appLine)
+                                            <div class="p-2.5 bg-[#f9f9fe] border border-[#eeedf2] rounded-lg space-y-1">
+                                                <div class="font-bold text-[11px] text-[#001e40] leading-snug">{{ $appLine->project_title }}</div>
+                                                @if($appLine->description)
+                                                    <div class="text-[10px] text-[#43474f]/80 leading-relaxed">{{ $appLine->description }}</div>
+                                                @endif
+                                                <div class="flex flex-wrap gap-x-4 gap-y-1 text-[10px] pt-1.5 font-mono border-t border-[#eeedf2] mt-1.5">
+                                                    <div>
+                                                        <span class="text-[#43474f]">Approved:</span>
+                                                        <span class="font-bold text-[#001e40]">₱{{ number_format($appLine->approved_budget, 2) }}</span>
+                                                    </div>
+                                                    <div>
+                                                        <span class="text-[#43474f]">Utilized:</span>
+                                                        <span class="font-bold text-[#ba1a1a]">₱{{ number_format($appLine->utilized_budget, 2) }}</span>
+                                                    </div>
+                                                    <div>
+                                                        <span class="text-[#43474f]">Available:</span>
+                                                        <span class="font-bold text-emerald-700">₱{{ number_format($appLine->approved_budget - $appLine->utilized_budget, 2) }}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        @endforeach
+                                    </div>
+                                @endif
                             </div>
                             <div class="bg-white p-4 border border-[#eeedf2] rounded-xl space-y-2">
                                 <h4 class="text-[10px] uppercase font-bold tracking-wider text-[#43474f]/60">Purpose</h4>
@@ -1184,29 +1102,7 @@ new #[Layout('layouts.app')] class extends Component
                                 </a>
                             @endif
 
-                            {{-- Recommender Signatory Action --}}
-                            @if($vf->status === 'ROUTING' && $isRecommender)
-                                <button wire:click="approvePr('{{ $vf->id }}')" class="px-4 py-2 bg-green-700 hover:bg-green-800 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 active:scale-95">
-                                    <span class="material-symbols-outlined text-[16px]">draw</span>
-                                    Digitally Recommend
-                                </button>
-                                <button wire:click="startRejection('{{ $vf->id }}')" class="px-4 py-2 border border-[#ba1a1a] text-[#ba1a1a] hover:bg-red-50 font-bold text-xs rounded-xl transition-all flex items-center gap-1.5 active:scale-95">
-                                    <span class="material-symbols-outlined text-[16px]">assignment_return</span>
-                                    Return with Edits
-                                </button>
-                            @endif
 
-                            {{-- Approver Signatory Action --}}
-                            @if($vf->status === 'ROUTING' && $isApprover)
-                                <button wire:click="approvePr('{{ $vf->id }}')" class="px-4 py-2 bg-green-700 hover:bg-green-800 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 active:scale-95">
-                                    <span class="material-symbols-outlined text-[16px]">draw</span>
-                                    Digitally Approve & Lock
-                                </button>
-                                <button wire:click="startRejection('{{ $vf->id }}')" class="px-4 py-2 border border-[#ba1a1a] text-[#ba1a1a] hover:bg-red-50 font-bold text-xs rounded-xl transition-all flex items-center gap-1.5 active:scale-95">
-                                    <span class="material-symbols-outlined text-[16px]">assignment_return</span>
-                                    Return with Edits
-                                </button>
-                            @endif
                         </div>
                         <button wire:click="closeDetails" class="px-5 py-2 bg-[#eeedf2] hover:bg-[#c3c6d1] text-[#43474f] font-bold text-xs rounded-xl transition-all active:scale-95">
                             Close Details

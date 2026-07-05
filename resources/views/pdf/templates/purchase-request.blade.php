@@ -17,6 +17,31 @@
     <meta charset="UTF-8">
     <title>Purchase Request - {{ $folder->pr_number ?: $folder->tracking_number }}</title>
     <style>
+        @font-face {
+            font-family: 'Gelasio';
+            src: url("{{ public_path('fonts/Gelasio/static/Gelasio-Regular.ttf') }}") format('truetype');
+            font-weight: normal;
+            font-style: normal;
+        }
+        @font-face {
+            font-family: 'Gelasio';
+            src: url("{{ public_path('fonts/Gelasio/static/Gelasio-Bold.ttf') }}") format('truetype');
+            font-weight: bold;
+            font-style: normal;
+        }
+        @font-face {
+            font-family: 'Gelasio';
+            src: url("{{ public_path('fonts/Gelasio/static/Gelasio-Italic.ttf') }}") format('truetype');
+            font-weight: normal;
+            font-style: italic;
+        }
+        @font-face {
+            font-family: 'Gelasio';
+            src: url("{{ public_path('fonts/Gelasio/static/Gelasio-BoldItalic.ttf') }}") format('truetype');
+            font-weight: bold;
+            font-style: italic;
+        }
+
         @page {
             size: A4;
             margin: 0.3in 0.3in 0.3in 0.3in;
@@ -25,7 +50,7 @@
         * { box-sizing: border-box; }
 
         body {
-            font-family: Arial, sans-serif;
+            font-family: 'Gelasio', Arial, sans-serif;
             font-size: 12px;
             color: #000;
             margin: 0;
@@ -166,42 +191,7 @@
 </head>
 <body>
 
-    @if(($folder->status ?? '') === 'ROUTING')
-        <div style="
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%) rotate(-45deg);
-            font-size: 70px;
-            color: rgba(220, 38, 38, 0.12);
-            font-weight: bold;
-            text-transform: uppercase;
-            letter-spacing: 5px;
-            pointer-events: none;
-            z-index: 9999;
-            white-space: nowrap;
-        ">
-            ROUTING REVIEW
-        </div>
-    @endif
-    @if(($folder->status ?? '') === 'DRAFT')
-        <div style="
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%) rotate(-45deg);
-            font-size: 90px;
-            color: rgba(220, 38, 38, 0.12);
-            font-weight: bold;
-            text-transform: uppercase;
-            letter-spacing: 10px;
-            pointer-events: none;
-            z-index: 9999;
-            white-space: nowrap;
-        ">
-            DRAFT ONLY
-        </div>
-    @endif
+
 
 
 
@@ -325,14 +315,28 @@
                                 </tr>
                             @endforelse
 
-                            <tr style="height: 120px;">
-                                <td></td>
-                                <td></td>
-                                <td class="text-center" style="vertical-align: top; padding-top: 10px; font-weight: bold;">***Nothing Follows***</td>
-                                <td></td>
-                                <td></td>
-                                <td></td>
-                            </tr>
+                             <tr style="height: 140px;">
+                                 <td></td>
+                                 <td></td>
+                                 <td class="text-center" style="vertical-align: top; padding-top: 10px; font-weight: bold;">
+                                     <div>***Nothing Follows***</div>
+                                     @if($folder->budget_signed_at)
+                                         <div style="margin-top: 15px; border: 1.5px solid #1e3a8a; padding: 6px 10px; background-color: #f0f4f8; display: inline-block; text-align: left; font-family: 'Courier New', monospace; font-size: 8.5px; color: #1e3a8a; font-weight: bold; border-radius: 4px; line-height: 1.3;">
+                                             <div style="text-align: center; font-size: 9px; border-bottom: 1px solid #1e3a8a; padding-bottom: 2px; margin-bottom: 4px; letter-spacing: 0.5px;">BUDGET CERTIFIED</div>
+                                             <div>PPA Code: {{ $folder->budget_ppa_code }}</div>
+                                             <div>Budget Code: {{ $folder->budget_code }}</div>
+                                             <div style="margin-top: 4px; border-top: 1px dashed #1e3a8a; padding-top: 2px; text-align: center; font-size: 7.5px;">
+                                                 DIGITALLY SIGNED<br>
+                                                 {{ $folder->budgetSignedBy->fullname ?? 'Budget Officer' }}<br>
+                                                 {{ $folder->budget_signed_at->format('Y-m-d H:i:s') }}
+                                             </div>
+                                         </div>
+                                     @endif
+                                 </td>
+                                 <td></td>
+                                 <td></td>
+                                 <td></td>
+                             </tr>
 
                             <tr class="font-bold">
                                 <td colspan="3" class="text-left">TOTAL</td>

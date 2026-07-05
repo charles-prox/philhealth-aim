@@ -13,13 +13,18 @@ class ProcurementFolder extends Model
     {
         static::saving(function ($folder) {
             if ($folder->status === 'ROUTING') {
-                if (empty($folder->recommended_signed_at)) {
+                if (empty($folder->budget_signed_at)) {
+                    $folder->current_signatory_id = \App\Models\SignatoryRegistry::getActiveSignatoryFor('BUDGET_OFFICER');
+                } elseif (empty($folder->recommended_signed_at)) {
                     $folder->current_signatory_id = $folder->recommended_by_id;
                 } elseif (empty($folder->approved_signed_at)) {
                     $folder->current_signatory_id = $folder->approved_by_id;
                 } else {
                     $folder->current_signatory_id = null;
                 }
+            } elseif ($folder->status === 'DRAFT') {
+                $creator = \App\Models\User::find($folder->created_by_id ?? auth()->id());
+                $folder->current_signatory_id = $creator?->employee_id ?? $folder->current_signatory_id;
             } else {
                 $folder->current_signatory_id = null;
             }
@@ -137,6 +142,10 @@ class ProcurementFolder extends Model
         'current_signatory_id',
         'gsu_accepted_at',
         'gsu_accepted_by_id',
+        'budget_signed_at',
+        'budget_signed_by_id',
+        'budget_ppa_code',
+        'budget_code',
     ];
 
     protected $casts = [
@@ -147,6 +156,7 @@ class ProcurementFolder extends Model
         'recommended_signed_at' => 'datetime',
         'approved_signed_at' => 'datetime',
         'gsu_accepted_at' => 'datetime',
+        'budget_signed_at' => 'datetime',
     ];
 
     public function prItems()
@@ -189,6 +199,11 @@ class ProcurementFolder extends Model
         return $this->belongsTo(Employee::class, 'current_signatory_id');
     }
 
+    public function budgetSignedBy()
+    {
+        return $this->belongsTo(Employee::class, 'budget_signed_by_id');
+    }
+
     public function office()
     {
         return $this->belongsTo(Office::class, 'office_id');
@@ -202,7 +217,10 @@ class ProcurementFolder extends Model
     public function getStatusLabelAttribute(): string
     {
         if ($this->status === 'ROUTING') {
-            if (empty($this->recommended_signed_at)) {
+            if (empty($this->budget_signed_at)) {
+                $name = $this->currentSignatory?->fullname ?? 'Budget Officer';
+                return "Pending Budget Check — {$name}";
+            } elseif (empty($this->recommended_signed_at)) {
                 $name = $this->currentSignatory?->fullname ?? 'Recommender';
                 return "Pending Recommendation — {$name}";
             } else {
@@ -234,7 +252,23 @@ class ProcurementFolder extends Model
             throw new \Exception("Security Exception: You are not the active signatory for this document.");
         }
 
-        if (empty($this->recommended_signed_at)) {
+        if (empty($this->budget_signed_at)) {
+            $this->update([
+                'budget_signed_at' => now(),
+                'budget_signed_by_id' => $employeeId,
+            ]);
+
+            \App\Models\ProcurementLog::create([
+                'procurement_folder_id' => $this->id,
+                'action' => 'BUDGET_VERIFIED',
+                'actor_id' => $employeeId,
+                'remarks' => 'Budget checked and confirmed on PR and ABC.',
+                'created_at' => now(),
+            ]);
+
+            // Re-compile core documents to stamp budget certification signature
+            \App\Jobs\GenerateProcurementDocumentsJob::dispatchSync($this);
+        } elseif (empty($this->recommended_signed_at)) {
             $this->update([
                 'recommended_signed_at' => now(),
             ]);

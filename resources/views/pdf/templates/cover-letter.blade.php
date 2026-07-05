@@ -57,6 +57,31 @@
     <meta charset="UTF-8">
     <title>Purchase Request Endorsement Memorandum - {{ $folder->pr_number ?: $folder->tracking_number }}</title>
     <style>
+        @font-face {
+            font-family: 'Gelasio';
+            src: url("{{ public_path('fonts/Gelasio/static/Gelasio-Regular.ttf') }}") format('truetype');
+            font-weight: normal;
+            font-style: normal;
+        }
+        @font-face {
+            font-family: 'Gelasio';
+            src: url("{{ public_path('fonts/Gelasio/static/Gelasio-Bold.ttf') }}") format('truetype');
+            font-weight: bold;
+            font-style: normal;
+        }
+        @font-face {
+            font-family: 'Gelasio';
+            src: url("{{ public_path('fonts/Gelasio/static/Gelasio-Italic.ttf') }}") format('truetype');
+            font-weight: normal;
+            font-style: italic;
+        }
+        @font-face {
+            font-family: 'Gelasio';
+            src: url("{{ public_path('fonts/Gelasio/static/Gelasio-BoldItalic.ttf') }}") format('truetype');
+            font-weight: bold;
+            font-style: italic;
+        }
+
         @page {
             size: A4;
             margin: 0.3in 0.3in 0.3in 0.3in;
@@ -65,7 +90,7 @@
         * { box-sizing: border-box; }
 
         body {
-            font-family: Arial, sans-serif;
+            font-family: 'Gelasio', Arial, sans-serif;
             font-size: 12px;
             color: #000;
             margin: 0;

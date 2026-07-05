@@ -24,7 +24,7 @@ new class extends Component
         ->join('');
 @endphp
 
-<aside class="h-screen fixed left-0 top-0 bg-white border-r border-[#c3c6d1] hidden md:flex flex-col gap-1 pt-4 z-50 transition-all duration-300 w-64"
+<aside class="h-screen fixed left-0 top-0 bg-white border-r border-[#c3c6d1] hidden md:flex flex-col gap-1 pt-4 z-50 transition-all duration-300"
        :class="sidebarCollapsed ? 'w-20' : 'w-64'">
     
     <!-- Brand Header -->

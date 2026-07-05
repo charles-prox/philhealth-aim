@@ -43,7 +43,7 @@
     }
 
     // Dynamic signatories from Signatory Registry
-    $budgetOfficerId = \App\Models\SignatoryRegistry::getActiveSignatoryFor('BUDGET_OFFICER');
+    $budgetOfficerId = $folder->budget_signed_by_id ?: \App\Models\SignatoryRegistry::getActiveSignatoryFor('BUDGET_OFFICER');
     $budgetOfficer = $budgetOfficerId ? \App\Models\Employee::find($budgetOfficerId) : null;
 
     $rvpSignerId = \App\Models\SignatoryRegistry::getActiveSignatoryFor('RVP');
@@ -55,6 +55,31 @@
     <meta charset="UTF-8">
     <title>Approved Budget for the Contract - {{ $folder->pr_number ?: $folder->tracking_number }}</title>
     <style>
+        @font-face {
+            font-family: 'Gelasio';
+            src: url("{{ public_path('fonts/Gelasio/static/Gelasio-Regular.ttf') }}") format('truetype');
+            font-weight: normal;
+            font-style: normal;
+        }
+        @font-face {
+            font-family: 'Gelasio';
+            src: url("{{ public_path('fonts/Gelasio/static/Gelasio-Bold.ttf') }}") format('truetype');
+            font-weight: bold;
+            font-style: normal;
+        }
+        @font-face {
+            font-family: 'Gelasio';
+            src: url("{{ public_path('fonts/Gelasio/static/Gelasio-Italic.ttf') }}") format('truetype');
+            font-weight: normal;
+            font-style: italic;
+        }
+        @font-face {
+            font-family: 'Gelasio';
+            src: url("{{ public_path('fonts/Gelasio/static/Gelasio-BoldItalic.ttf') }}") format('truetype');
+            font-weight: bold;
+            font-style: italic;
+        }
+
         @page {
             size: A4 landscape;
             margin: 0.3in 0.3in 0.3in 0.3in;
@@ -63,7 +88,7 @@
         * { box-sizing: border-box; }
 
         body {
-            font-family: Arial, sans-serif;
+            font-family: 'Gelasio', Arial, sans-serif;
             font-size: 11px;
             color: #000;
             margin: 0;
@@ -370,6 +395,12 @@
                             <div class="sig-col">
                                 <div class="sig-section">
                                     <p><strong>Certified funded in COB:</strong></p>
+                                    @if($folder->budget_signed_at)
+                                        <div style="font-family: 'Courier New', monospace; font-size: 8px; color: #1e3a8a; line-height: 1.2; border: 1px dashed #1e3a8a; padding: 4px; display: inline-block; margin-top: 10px; text-align: center; width: 100%;">
+                                            <strong>DIGITALLY SIGNED</strong><br>
+                                            {{ $folder->budget_signed_at->format('Y-m-d H:i:s') }}
+                                        </div>
+                                    @endif
                                 </div>
                                 <div>
                                     <div class="sig-line">

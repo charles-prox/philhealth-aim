@@ -643,10 +643,10 @@ new #[Layout('layouts.app')] class extends Component
                                                             @if($folder->status === 'DRAFT')
                                                                 <div class="h-px bg-[#eeedf2] my-1"></div>
                                                                 {{-- Route for Signature --}}
-                                                                <button wire:click="submitForApproval('{{ $folder->id }}')" class="flex items-center gap-2.5 w-full px-3 py-2 text-xs font-bold text-[#1f477b] hover:bg-blue-50 rounded-lg transition-all whitespace-nowrap">
-                                                                    <span class="material-symbols-outlined text-[18px]">send</span>
-                                                                    <span>Submit to GSU</span>
-                                                                </button>
+                                                                <a href="{{ route('procurement.review', $folder->id) }}" wire:navigate class="flex items-center gap-2.5 w-full px-3 py-2 text-xs font-bold text-[#1f477b] hover:bg-blue-50 rounded-lg transition-all whitespace-nowrap">
+                                                                    <span class="material-symbols-outlined text-[18px]">rate_review</span>
+                                                                    <span>Sign & Submit to GSU</span>
+                                                                </a>
 
                                                                 {{-- Edit Draft --}}
                                                                 <button wire:click="editPr('{{ $folder->id }}')" class="flex items-center gap-2.5 w-full px-3 py-2 text-xs font-bold text-[#001e40] hover:bg-[#f4f3f8] hover:text-black rounded-lg transition-all whitespace-nowrap">
@@ -858,10 +858,48 @@ new #[Layout('layouts.app')] class extends Component
                             <div class="bg-white p-5 border border-[#eeedf2] rounded-xl space-y-3 shadow-xs">
                                 <h4 class="text-[10px] uppercase font-bold tracking-wider text-[#43474f]/60">Operational Details</h4>
                                 <div class="space-y-1.5 text-xs text-[#001e40]">
-                                    <div><strong class="text-[#43474f]">PR Number:</strong> {{ $vf->pr_number ?: 'Not assigned' }}</div>
+                                    <div>
+                                        <strong class="text-[#43474f]">PR Number:</strong> 
+                                        @if($vf->pr_number)
+                                            <span class="px-2 py-0.5 bg-blue-100 text-[#001e40] rounded font-bold font-mono text-[11px] border border-blue-200 ml-1">{{ $vf->pr_number }}</span>
+                                        @else
+                                            <span class="px-2 py-0.5 bg-[#eeedf2] text-[#43474f]/60 rounded italic text-[11px] ml-1">Not assigned</span>
+                                        @endif
+                                    </div>
                                     <div><strong class="text-[#43474f]">Procurement Method:</strong> {{ $vf->procurement_method ?: 'Shopping' }}</div>
-                                    <div><strong class="text-[#43474f]">Created By:</strong> {{ $vf->created_at ? $vf->created_at->format('Y-m-d H:i') : '' }}</div>
+                                    <div><strong class="text-[#43474f]">Created At:</strong> {{ $vf->created_at ? $vf->created_at->format('Y-m-d H:i') : '' }}</div>
                                 </div>
+
+                                @php
+                                    $uniqueAppLines = $vf->prItems->map(fn($item) => $item->appLineItem)->filter()->unique('id');
+                                @endphp
+                                @if($uniqueAppLines->isNotEmpty())
+                                    <div class="mt-4 pt-3 border-t border-[#eeedf2] space-y-2">
+                                        <h5 class="text-[9px] uppercase font-bold tracking-wider text-[#43474f]/60 mb-2">Sourced APP Line Items</h5>
+                                        @foreach($uniqueAppLines as $appLine)
+                                            <div class="p-2.5 bg-[#f9f9fe] border border-[#eeedf2] rounded-lg space-y-1">
+                                                <div class="font-bold text-[11px] text-[#001e40] leading-snug">{{ $appLine->project_title }}</div>
+                                                @if($appLine->description)
+                                                    <div class="text-[10px] text-[#43474f]/80 leading-relaxed">{{ $appLine->description }}</div>
+                                                @endif
+                                                <div class="flex flex-wrap gap-x-4 gap-y-1 text-[10px] pt-1.5 font-mono border-t border-[#eeedf2] mt-1.5">
+                                                    <div>
+                                                        <span class="text-[#43474f]">Approved:</span>
+                                                        <span class="font-bold text-[#001e40]">₱{{ number_format($appLine->approved_budget, 2) }}</span>
+                                                    </div>
+                                                    <div>
+                                                        <span class="text-[#43474f]">Utilized:</span>
+                                                        <span class="font-bold text-[#ba1a1a]">₱{{ number_format($appLine->utilized_budget, 2) }}</span>
+                                                    </div>
+                                                    <div>
+                                                        <span class="text-[#43474f]">Available:</span>
+                                                        <span class="font-bold text-emerald-700">₱{{ number_format($appLine->approved_budget - $appLine->utilized_budget, 2) }}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        @endforeach
+                                    </div>
+                                @endif
                             </div>
                             <div class="bg-white p-5 border border-[#eeedf2] rounded-xl space-y-3 shadow-xs">
                                 <h4 class="text-[10px] uppercase font-bold tracking-wider text-[#43474f]/60">Purpose</h4>

@@ -356,7 +356,7 @@ new class extends Component
         }
     }
 
-    public function processPrGeneration(bool $submitToGsu = false): void
+    public function processPrGeneration(): void
     {
         // Re-validate with the narrow containment check at final submission too
         $validRecommenderIds = $this->validRecommenders->keys()->implode(',');
@@ -463,13 +463,7 @@ new class extends Component
         $recommendedEmployee = Employee::findOrFail((int) $this->recommendedById);
         $approvedEmployee    = Employee::findOrFail((int) $this->approvedById);
 
-        $status = $submitToGsu ? 'SUBMITTED_TO_GSU' : 'DRAFT';
-        if ($this->folderId) {
-            $existingFolder = ProcurementFolder::find($this->folderId);
-            if ($existingFolder && in_array($existingFolder->status, ['RETURNED_FOR_EDIT', 'RETURNED_FOR_COMPLIANCE'])) {
-                $status = $submitToGsu ? 'ROUTING' : 'DRAFT';
-            }
-        }
+        $status = 'DRAFT';
 
         $folder = DB::transaction(function () use ($status, $requestedEmployee, $requestedById, $requestedByDesignation, $recommendedEmployee, $approvedEmployee) {
             if ($this->folderId) {
@@ -491,7 +485,7 @@ new class extends Component
                     'tracking_number'              => $this->trackingNumber,
                     'overall_purpose'              => $this->purpose,
                     'status'                       => $status,
-                    'requested_signed_at'          => $submitToGsu ? now() : null,
+                    'requested_signed_at'          => null,
                     'requesting_unit'              => $requestedEmployee?->office_division,
                     'requested_by_id'              => $requestedById,
                     'requested_by_designation'     => $requestedByDesignation,
@@ -509,7 +503,7 @@ new class extends Component
                     'procurement_method'           => 'Shopping',
                     'overall_purpose'              => $this->purpose,
                     'status'                       => $status,
-                    'requested_signed_at'          => $submitToGsu ? now() : null,
+                    'requested_signed_at'          => null,
                     'requesting_unit'              => $requestedEmployee?->office_division,
                     'requested_by_id'              => $requestedById,
                     'requested_by_designation'     => $requestedByDesignation,
@@ -575,10 +569,8 @@ new class extends Component
             }
 
             // Create Log
-            $logAction = $status === 'SUBMITTED_TO_GSU' ? 'SUBMITTED' : ($status === 'ROUTING' ? 'RESUBMITTED' : 'CREATED');
-            $logRemarks = $status === 'SUBMITTED_TO_GSU' 
-                ? 'PR submitted to GSU Triage Box. The physical copies of the documents mentioned in the Cover Letter are enroute to the GSU Procurement Officer for triage and verification.' 
-                : ($status === 'ROUTING' ? 'PR resubmitted to GSU Triage Box with corrections. The corrected physical copies of the documents listed in the Cover Letter are enroute to the GSU Procurement Officer.' : 'PR draft compiled and successfully saved to the office registry.');
+            $logAction = ($this->folderId && in_array($folder->status ?? '', ['RETURNED_FOR_EDIT', 'RETURNED_FOR_COMPLIANCE'])) ? 'RESUBMITTED' : 'CREATED';
+            $logRemarks = 'PR draft compiled and successfully saved. Pending custodian signature and submission.';
 
             \App\Models\ProcurementLog::create([
                 'procurement_folder_id' => $folder->id,
@@ -595,8 +587,8 @@ new class extends Component
         $this->selectedIds = [];
         $this->basket = [];
         
-        session()->flash('status', 'PR compiled successfully! Folder has been created/updated in the Procurement Tracker.');
-        $this->returnToDashboard();
+        session()->flash('status', 'PR compiled successfully! Please review and sign the documents before submitting.');
+        $this->redirectRoute('procurement.review', ['folderId' => $folder->id], navigate: true);
     }
 
     public function returnToDashboard(): void
@@ -1698,16 +1690,10 @@ new class extends Component
                     </button>
                     @if(!$entirelyLocked)
                         <div class="flex items-center gap-3">
-                            @if(!$inputsDisabled)
-                                <button wire:click="processPrGeneration(false)" wire:loading.attr="disabled" class="px-5 py-2.5 text-xs font-bold border border-[#c3c6d1] text-[#43474f] rounded-xl hover:bg-gray-100 transition-all flex items-center gap-1.5">
-                                    <span wire:loading wire:target="processPrGeneration(false)" class="w-3 h-3 border-2 border-gray-500 border-t-transparent rounded-full animate-spin"></span>
-                                    <span wire:loading.remove wire:target="processPrGeneration(false)" class="material-symbols-outlined text-[16px]">save</span> Save Draft
-                                </button>
-                            @endif
-                            <button wire:click="processPrGeneration(true)" wire:loading.attr="disabled" class="px-6 py-2.5 bg-[#001e40] text-white font-bold text-sm rounded-xl hover:bg-[#1f3f66] active:scale-95 transition-all flex items-center gap-2 shadow-md disabled:opacity-60">
-                                <span wire:loading wire:target="processPrGeneration(true)" class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                                <span wire:loading.remove wire:target="processPrGeneration(true)" class="material-symbols-outlined text-[18px]">send</span> 
-                                <span>{{ ($this->folder && in_array($this->folder->status, ['RETURNED_FOR_EDIT', 'RETURNED_FOR_COMPLIANCE'])) ? 'Resubmit PR to Signatories' : 'Submit to GSU Triage' }}</span>
+                            <button wire:click="processPrGeneration" wire:loading.attr="disabled" class="px-6 py-2.5 bg-[#001e40] text-white font-bold text-sm rounded-xl hover:bg-[#1f3f66] active:scale-95 transition-all flex items-center gap-2 shadow-md disabled:opacity-60">
+                                <span wire:loading wire:target="processPrGeneration" class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                                <span wire:loading.remove wire:target="processPrGeneration" class="material-symbols-outlined text-[18px]">visibility</span> 
+                                <span>Compile & Review PR</span>
                             </button>
                         </div>
                     @endif

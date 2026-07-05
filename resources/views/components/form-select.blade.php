@@ -5,7 +5,7 @@
      x-data="{ 
         open: false, 
         multiple: {{ $multiple ? 'true' : 'false' }},
-        selected: @entangle($attributes->wire('model')),
+        selected: @if($attributes->has('wire:model')) @entangle($attributes->wire('model')) @else null @endif,
         searchTerm: '',
         options: {{ json_encode($options) }},
         
