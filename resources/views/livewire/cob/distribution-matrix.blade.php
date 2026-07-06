@@ -61,6 +61,8 @@ new #[Layout('layouts.app')] class extends Component
         if ($name === 'newAllocation.office_id') {
             $this->newAllocation['employee_id'] = '';
             $this->newAllocation['sub_employee_id'] = '';
+        } elseif ($name === 'newAllocation.employee_id') {
+            $this->newAllocation['sub_employee_id'] = '';
         }
     }
 
@@ -138,13 +140,40 @@ new #[Layout('layouts.app')] class extends Component
             ->sum('allocated_quantity');
     }
 
+    private function getRelatedOfficeAcronyms(Office $office): array
+    {
+        $acronyms = [$office->acronym];
+
+        // 1. Get ancestors
+        $current = $office->parent;
+        while ($current) {
+            $acronyms[] = $current->acronym;
+            $current = $current->parent;
+        }
+
+        // 2. Get descendants
+        $queue = [$office];
+        while (!empty($queue)) {
+            $curr = array_shift($queue);
+            foreach ($curr->children as $child) {
+                $acronyms[] = $child->acronym;
+                $queue[] = $child;
+            }
+        }
+
+        return array_filter(array_unique($acronyms));
+    }
+
     // -------------------------------------------------------------------------
     // Computed: Office dropdown
     // -------------------------------------------------------------------------
     #[Computed]
     public function offices(): array
     {
-        return Office::orderBy('name')->pluck('name', 'id')->toArray();
+        return Office::orderBy('name')
+            ->get()
+            ->mapWithKeys(fn($o) => [$o->id => "{$o->name} ({$o->acronym})"])
+            ->toArray();
     }
 
     // -------------------------------------------------------------------------
@@ -161,7 +190,8 @@ new #[Layout('layouts.app')] class extends Component
         return Employee::where('office_division', $office->acronym)
             ->where('employment_status', 'PERMANENT')
             ->orderBy('fullname')
-            ->pluck('fullname', 'id')
+            ->get()
+            ->mapWithKeys(fn($emp) => [$emp->id => "{$emp->fullname} — {$emp->designation}"])
             ->toArray();
     }
 
@@ -171,15 +201,16 @@ new #[Layout('layouts.app')] class extends Component
     #[Computed]
     public function subEmployees(): array
     {
-        $officeId = $this->newAllocation['office_id'] ?? '';
-        if (!$officeId) return [];
-        $office = Office::find($officeId);
-        if (!$office) return [];
+        $officerId = $this->newAllocation['employee_id'] ?? '';
+        if (!$officerId) return [];
+        $officer = Employee::find($officerId);
+        if (!$officer) return [];
 
-        return Employee::where('office_division', $office->acronym)
+        return Employee::where('office_division', $officer->office_division)
             ->whereIn('employment_status', ['CASUAL', 'JO'])
             ->orderBy('fullname')
-            ->pluck('fullname', 'id')
+            ->get()
+            ->mapWithKeys(fn($emp) => [$emp->id => "{$emp->fullname} — {$emp->designation}"])
             ->toArray();
     }
 
@@ -636,7 +667,7 @@ new #[Layout('layouts.app')] class extends Component
                                         <label class="text-[9px] text-[#43474f] font-bold uppercase tracking-wider block mb-1">Accountable Officer (Regular)</label>
                                         <x-form-select 
                                             label="" 
-                                            wire:model="newAllocation.employee_id"
+                                            wire:model.live="newAllocation.employee_id"
                                             :options="$this->regularEmployees"
                                             placeholder="Select Accountable..."
                                             :disabled="!$newAllocation['office_id']"
@@ -654,7 +685,7 @@ new #[Layout('layouts.app')] class extends Component
                                             wire:model="newAllocation.sub_employee_id"
                                             :options="$this->subEmployees"
                                             placeholder="Optional (Casual/JO)"
-                                            :disabled="!$newAllocation['office_id']"
+                                            :disabled="!$newAllocation['employee_id']"
                                             searchable />
                                     </div>
 

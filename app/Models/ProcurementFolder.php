@@ -13,10 +13,10 @@ class ProcurementFolder extends Model
     {
         static::saving(function ($folder) {
             if ($folder->status === 'ROUTING') {
-                if (empty($folder->budget_signed_at)) {
-                    $folder->current_signatory_id = \App\Models\SignatoryRegistry::getActiveSignatoryFor('BUDGET_OFFICER');
-                } elseif (empty($folder->recommended_signed_at)) {
+                if (empty($folder->recommended_signed_at)) {
                     $folder->current_signatory_id = $folder->recommended_by_id;
+                } elseif (empty($folder->budget_signed_at)) {
+                    $folder->current_signatory_id = \App\Models\SignatoryRegistry::getActiveSignatoryFor('BUDGET_OFFICER');
                 } elseif (empty($folder->approved_signed_at)) {
                     $folder->current_signatory_id = $folder->approved_by_id;
                 } else {
@@ -254,7 +254,22 @@ class ProcurementFolder extends Model
             throw new \Exception("Security Exception: You are not the active signatory for this document.");
         }
 
-        if (empty($this->budget_signed_at)) {
+        if (empty($this->recommended_signed_at)) {
+            $this->update([
+                'recommended_signed_at' => now(),
+            ]);
+
+            \App\Models\ProcurementLog::create([
+                'procurement_folder_id' => $this->id,
+                'action' => 'RECOMMENDED',
+                'actor_id' => $employeeId,
+                'remarks' => 'PR recommended via Unified Approval Desk. Digitally signed: Purchase Request (PR).',
+                'created_at' => now(),
+            ]);
+
+            // Re-compile core documents to stamp recommendation signature
+            \App\Jobs\GenerateProcurementDocumentsJob::dispatchSync($this);
+        } elseif (empty($this->budget_signed_at)) {
             $this->update([
                 'budget_signed_at' => now(),
                 'budget_signed_by_id' => $employeeId,
@@ -272,21 +287,6 @@ class ProcurementFolder extends Model
             ]);
 
             // Re-compile core documents to stamp budget certification signature
-            \App\Jobs\GenerateProcurementDocumentsJob::dispatchSync($this);
-        } elseif (empty($this->recommended_signed_at)) {
-            $this->update([
-                'recommended_signed_at' => now(),
-            ]);
-
-            \App\Models\ProcurementLog::create([
-                'procurement_folder_id' => $this->id,
-                'action' => 'RECOMMENDED',
-                'actor_id' => $employeeId,
-                'remarks' => 'PR recommended via Unified Approval Desk. Digitally signed: Purchase Request (PR).',
-                'created_at' => now(),
-            ]);
-
-            // Re-compile core documents to stamp recommendation signature
             \App\Jobs\GenerateProcurementDocumentsJob::dispatchSync($this);
         } elseif (empty($this->approved_signed_at)) {
             $this->update([
@@ -319,24 +319,24 @@ class ProcurementFolder extends Model
 
     public static function generateNextPrNumber(): string
     {
-        $currentYear = now()->year;
-        $prefix = "PR-{$currentYear}-";
+        $year2 = substr(now()->format('y'), -2); // e.g. "26"
+        $month2 = now()->format('m'); // e.g. "01"
+        $static = "PR";
         
-        $highestPr = self::where('pr_number', 'like', $prefix . '%')
-            ->select('pr_number')
-            ->orderBy('pr_number', 'desc')
-            ->first();
+        $likePattern = $year2 . '__' . $static . '-%';
+        
+        $maxSeq = self::where('pr_number', 'like', $likePattern)
+            ->get()
+            ->map(function ($folder) {
+                $parts = explode('-', $folder->pr_number);
+                $seq = end($parts);
+                return is_numeric($seq) ? (int) $seq : 0;
+            })
+            ->max() ?? 0;
             
-        $nextSeq = 1;
-        if ($highestPr) {
-            $parts = explode('-', $highestPr->pr_number);
-            $seq = end($parts);
-            if (is_numeric($seq)) {
-                $nextSeq = (int) $seq + 1;
-            }
-        }
+        $nextSeq = $maxSeq + 1;
         
-        return $prefix . str_pad($nextSeq, 5, '0', STR_PAD_LEFT);
+        return $year2 . $month2 . $static . '-' . str_pad($nextSeq, 3, '0', STR_PAD_LEFT);
     }
 
     public function cancelAndPurge(string $statusTarget): void

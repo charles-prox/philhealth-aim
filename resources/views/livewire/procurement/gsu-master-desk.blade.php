@@ -540,7 +540,7 @@ new #[Layout('layouts.app')] class extends Component
                         <x-primary-button variant="secondary" icon="download" class="!px-3" />
                     </div>
                 </div>
-                <div class="overflow-x-auto custom-scrollbar">
+                <div class="overflow-x-auto lg:overflow-visible custom-scrollbar">
                     <table class="w-full text-left border-collapse">
                         <thead>
                             <tr class="bg-[#eeedf2] border-b border-[#c3c6d1]">
@@ -558,21 +558,20 @@ new #[Layout('layouts.app')] class extends Component
                                 <td class="p-table-cell-padding font-bold text-[#43474f] font-mono text-xs">{{ $folder->tracking_number }}</td>
                                 <td class="p-table-cell-padding font-bold text-[#001e40]">{{ $folder->pr_number ?? '—' }}</td>
                                 <td class="p-table-cell-padding text-[#1a1c1f]">{{ $folder->created_at->format('M d, Y') }}</td>
-                                <td class="p-table-cell-padding text-[#1a1c1f] relative group">
-                                    @php
-                                        $purposeLines = explode("\n", trim($folder->overall_purpose ?: 'No purpose specified'));
-                                        $firstLine = trim($purposeLines[0] ?? '');
-                                        $hasMultipleLines = count($purposeLines) > 1 || strlen($firstLine) > 40;
-                                        $displayPurpose = Str::limit($firstLine, 40) . ($hasMultipleLines ? '...' : '');
-                                    @endphp
-                                    <div class="cursor-help font-medium hover:text-[#001e40] transition-colors">
+                                @php
+                                    $purposeLines = explode("\n", trim($folder->overall_purpose ?: 'No purpose specified'));
+                                    $firstLine = trim($purposeLines[0] ?? '');
+                                    $hasMultipleLines = count($purposeLines) > 1 || strlen($firstLine) > 40;
+                                    $displayPurpose = Str::limit($firstLine, 40) . ($hasMultipleLines ? '...' : '');
+                                @endphp
+                                <td class="p-table-cell-padding text-[#1a1c1f] relative {{ $hasMultipleLines ? 'group' : '' }}">
+                                    <div class="{{ $hasMultipleLines ? 'cursor-help font-medium hover:text-[#001e40] transition-colors' : 'font-medium text-[#43474f]' }}">
                                         {{ $displayPurpose }}
                                     </div>
-                                    <!-- Custom Hover Tooltip (Scrollable) -->
-                                    <div class="absolute left-4 top-full mt-1 hidden group-hover:block w-80 max-h-36 overflow-y-auto bg-[#001e40] text-white text-[11px] p-3 rounded-xl shadow-xl border border-white/10 z-50 whitespace-pre-line custom-scrollbar">
-                                        <div class="font-bold text-[9px] uppercase tracking-wider text-white/50 mb-1 border-b border-white/10 pb-1">Full Purpose</div>
-                                        {{ $folder->overall_purpose ?: 'No purpose specified' }}
-                                    </div>
+                                    @if($hasMultipleLines)
+                                        <!-- Custom Hover Tooltip (Scrollable) -->
+                                        <div class="absolute left-0 top-full mt-1 hidden group-hover:block w-80 max-h-32 overflow-y-auto bg-white text-[#43474f] text-[12px] leading-relaxed p-3 rounded-lg shadow-lg border border-[#c3c6d1] z-50 whitespace-pre-line custom-scrollbar">{{ trim($folder->overall_purpose) ?: 'No purpose specified' }}</div>
+                                    @endif
                                 </td>
                                 <td class="p-table-cell-padding">
                                     @php

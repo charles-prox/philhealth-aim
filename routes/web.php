@@ -76,6 +76,10 @@ Volt::route('admin/users', 'admin.user-management')
     ->middleware(['auth'])
     ->name('admin.users');
 
+Volt::route('admin/employees', 'admin.employee-management')
+    ->middleware(['auth'])
+    ->name('admin.employees');
+
 Volt::route('admin/signatory-switchboard', 'admin.signatory-switchboard')
     ->middleware(['auth'])
     ->name('admin.signatory');

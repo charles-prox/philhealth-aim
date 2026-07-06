@@ -1,11 +1,12 @@
 @props(['label', 'icon' => null, 'placeholder' => 'Select an option', 'options' => [], 'error' => null, 'multiple' => false, 'searchable' => false, 'placement' => 'bottom'])
 
 <div class="flex flex-col gap-2" 
+     :class="open ? 'relative z-[70]' : ''"
      data-options="{{ json_encode($options) }}"
      x-data="{ 
         open: false, 
         multiple: {{ $multiple ? 'true' : 'false' }},
-        selected: @if($attributes->has('wire:model')) @entangle($attributes->wire('model')) @else null @endif,
+        selected: @if($attributes->wire('model')) @entangle($attributes->wire('model')) @else null @endif,
         searchTerm: '',
         options: {{ json_encode($options) }},
         
@@ -98,7 +99,7 @@
         </div>
     @endif
 
-    <div class="relative" @click.away="open = false">
+    <div class="relative" :class="open ? 'z-[70]' : ''" @click.away="open = false">
         <!-- Trigger Button -->
         <button type="button" 
                 @click="open = !open" 

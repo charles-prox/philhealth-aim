@@ -250,6 +250,8 @@ new class extends Component
                 $qty = (int) ($this->basket[$basketKey]['qty'] ?? 1);
                 $unitCost = (float) ($this->basket[$basketKey]['unit_cost'] ?? 0.0);
                 $this->basket[$basketKey]['total_cost'] = $qty * $unitCost;
+                
+                $this->autoSelectSignatories();
             }
         }
     }
@@ -261,6 +263,7 @@ new class extends Component
                 $this->addError('basket', 'Your selection is empty. Please select an APP line item to fund your PR.');
                 return;
             }
+            $this->autoSelectSignatories();
             $this->currentStep = 2;
         } elseif ($this->currentStep === 2) {
             // Narrow containment validation — prevents forged IDs from bypassing the dropdown
@@ -660,6 +663,48 @@ new class extends Component
      * can always select the specific individual physically handling recommending duties,
      * regardless of which OIC position is currently set as active_holder.
      */
+    private function getSectionHeadForUser(): ?int
+    {
+        $userOffice = auth()->user()->office;
+        if (!$userOffice) {
+            return null;
+        }
+
+        // Exempt Planning (PRU) and Public affairs (PAU) units, mapping them to their own UNIT_HEAD
+        if (in_array($userOffice->acronym, ['PAU', 'PRU'])) {
+            return \App\Models\SignatoryRegistry::getActiveSignatoryFor('UNIT_HEAD', $userOffice->id);
+        }
+
+        $section = $userOffice->section;
+        if ($section) {
+            return \App\Models\SignatoryRegistry::getActiveSignatoryFor('SECTION_HEAD', $section->id);
+        }
+
+        return null;
+    }
+
+    public function autoSelectSignatories(): void
+    {
+        $totalCost = $this->totalBasketValue();
+
+        // 1. Recommender
+        if ($totalCost >= 200000.00) {
+            $this->recommendedById = $this->getSectionHeadForUser();
+        } else {
+            $gsuOffice = \App\Models\Office::where('acronym', 'GSU')->first();
+            if ($gsuOffice) {
+                $this->recommendedById = \App\Models\SignatoryRegistry::getActiveSignatoryFor('UNIT_HEAD', $gsuOffice->id);
+            }
+        }
+
+        // 2. Approver
+        if ($totalCost >= 200000.00) {
+            $this->approvedById = \App\Models\SignatoryRegistry::getActiveSignatoryFor('RVP');
+        } else {
+            $this->approvedById = \App\Models\SignatoryRegistry::getActiveSignatoryFor('MSD_HEAD');
+        }
+    }
+
     /**
      * Dynamic Active Recommender Pool
      * Checks creator's office hierarchy tier and returns only active authorized recommenders.
@@ -667,66 +712,20 @@ new class extends Component
     #[Computed]
     public function validRecommenders(): \Illuminate\Support\Collection
     {
-        $userOffice = auth()->user()->office;
-        if (!$userOffice) {
-            return collect();
-        }
-
+        $totalCost = $this->totalBasketValue();
         $recommenderIds = [];
 
-        // 1. Fetch the Active GSU Unit Head (central recommending authority)
-        $gsuOffice = \App\Models\Office::where('acronym', 'GSU')->first();
-        if ($gsuOffice) {
-            $gsuSigner = \App\Models\SignatoryRegistry::getActiveSignatoryFor('UNIT_HEAD', $gsuOffice->id);
-            if ($gsuSigner) {
-                $recommenderIds[] = $gsuSigner;
+        if ($totalCost >= 200000.00) {
+            $sectionHeadId = $this->getSectionHeadForUser();
+            if ($sectionHeadId) {
+                $recommenderIds[] = $sectionHeadId;
             }
-        }
-
-        // 2. Fetch local boss depending on organizational type (Division, Section, or Unit)
-        if ($userOffice->type === 'UNIT') {
-            // Unit members report to parent Section head or Division Chief
-            $parent = $userOffice->parent;
-            if ($parent && $parent->type === 'SECTION') {
-                $sectionSigner = \App\Models\SignatoryRegistry::getActiveSignatoryFor('SECTION_HEAD', $parent->id);
-                if ($sectionSigner) {
-                    $recommenderIds[] = $sectionSigner;
-                } else {
-                    // Fallback to parent Division Chief if Section Head is not configured
-                    $division = $parent->parent;
-                    if ($division && $division->type === 'DIVISION') {
-                        $positionSlug = $division->acronym === 'ORVP' ? 'RVP' : $division->acronym . '_CHIEF';
-                        if ($division->acronym === 'MSD') {
-                            $positionSlug = 'MSD_HEAD';
-                        }
-                        $divisionSigner = \App\Models\SignatoryRegistry::getActiveSignatoryFor($positionSlug);
-                        if ($divisionSigner) {
-                            $recommenderIds[] = $divisionSigner;
-                        }
-                    }
-                }
-            } elseif ($parent && $parent->type === 'DIVISION') {
-                $positionSlug = $parent->acronym === 'ORVP' ? 'RVP' : $parent->acronym . '_CHIEF';
-                if ($parent->acronym === 'MSD') {
-                    $positionSlug = 'MSD_HEAD';
-                }
-                $divisionSigner = \App\Models\SignatoryRegistry::getActiveSignatoryFor($positionSlug);
-                if ($divisionSigner) {
-                    $recommenderIds[] = $divisionSigner;
-                }
-            }
-        } elseif ($userOffice->type === 'SECTION' || $userOffice->type === 'DIVISION') {
-            // Section or Division members report to parent Division Chief
-            $userDivision = $userOffice->type === 'DIVISION' ? $userOffice : $userOffice->division;
-            if ($userDivision) {
-                $positionSlug = $userDivision->acronym === 'ORVP' ? 'RVP' : $userDivision->acronym . '_CHIEF';
-                if ($userDivision->acronym === 'MSD') {
-                    $positionSlug = 'MSD_HEAD';
-                }
-
-                $divisionSigner = \App\Models\SignatoryRegistry::getActiveSignatoryFor($positionSlug);
-                if ($divisionSigner) {
-                    $recommenderIds[] = $divisionSigner;
+        } else {
+            $gsuOffice = \App\Models\Office::where('acronym', 'GSU')->first();
+            if ($gsuOffice) {
+                $gsuSigner = \App\Models\SignatoryRegistry::getActiveSignatoryFor('UNIT_HEAD', $gsuOffice->id);
+                if ($gsuSigner) {
+                    $recommenderIds[] = $gsuSigner;
                 }
             }
         }
@@ -750,16 +749,19 @@ new class extends Component
     #[Computed]
     public function validApprovers(): \Illuminate\Support\Collection
     {
+        $totalCost = $this->totalBasketValue();
         $approverIds = [];
 
-        $msdSigner = \App\Models\SignatoryRegistry::getActiveSignatoryFor('MSD_HEAD');
-        if ($msdSigner) {
-            $approverIds[] = $msdSigner;
-        }
-
-        $rvpSigner = \App\Models\SignatoryRegistry::getActiveSignatoryFor('RVP');
-        if ($rvpSigner) {
-            $approverIds[] = $rvpSigner;
+        if ($totalCost >= 200000.00) {
+            $rvpSigner = \App\Models\SignatoryRegistry::getActiveSignatoryFor('RVP');
+            if ($rvpSigner) {
+                $approverIds[] = $rvpSigner;
+            }
+        } else {
+            $msdSigner = \App\Models\SignatoryRegistry::getActiveSignatoryFor('MSD_HEAD');
+            if ($msdSigner) {
+                $approverIds[] = $msdSigner;
+            }
         }
 
         $approverIds = array_filter(array_unique($approverIds));

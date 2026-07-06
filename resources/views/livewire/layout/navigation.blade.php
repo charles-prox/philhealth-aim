@@ -145,6 +145,10 @@ new class extends Component
                 User Management
             </x-sidebar-link>
 
+            <x-sidebar-link :href="route('admin.employees')" :active="request()->routeIs('admin.employees')" icon="badge">
+                Employee Registry
+            </x-sidebar-link>
+
             @php
                 $activeOicCount = \App\Models\SignatoryRegistry::where('active_holder', '!=', 'PRIMARY')->count();
             @endphp

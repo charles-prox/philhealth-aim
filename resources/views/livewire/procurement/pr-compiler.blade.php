@@ -50,6 +50,12 @@ new class extends Component
         return \App\Models\ProcurementFolder::generateNextPrNumber();
     }
 
+    public function generateTrackingNumber(): string
+    {
+        $sequence = \App\Models\ProcurementFolder::where('tracking_number', 'LIKE', 'TRK-' . now()->year . '-%')->count() + 1;
+        return 'TRK-' . now()->year . '-' . str_pad($sequence, 5, '0', STR_PAD_LEFT);
+    }
+
     #[On('open-pr-creation')]
     public function resetState(?string $folderId = null): void
     {
@@ -60,8 +66,8 @@ new class extends Component
         $this->search = '';
         $this->showCompileModal = false;
         $this->folderId = $folderId;
-        $this->compileTrackingNumber = $this->generateNextPrNumber();
-        $this->compilePrNumber = $this->compileTrackingNumber;
+        $this->compileTrackingNumber = $this->generateTrackingNumber();
+        $this->compilePrNumber = $this->generateNextPrNumber();
         $this->compilePurpose = '';
         $this->requestedById    = null;
         $this->approvedById     = null;
@@ -90,14 +96,15 @@ new class extends Component
                 $this->addError('selectedIds', 'Please select at least one allocation.');
                 return;
             }
+            $this->autoSelectSignatories();
             $this->currentStep = 2;
         } elseif ($this->currentStep === 2) {
             $this->validate([
                 'compileTrackingNumber' => 'required|string|max:50|unique:procurement_folders,tracking_number,' . ($this->folderId ?? 'NULL') . ',id',
                 'compilePrNumber'       => 'required|string|max:50|unique:procurement_folders,pr_number,' . ($this->folderId ?? 'NULL') . ',id',
                 'compilePurpose'        => 'required|string|max:1000',
-                'recommendedById'       => 'required|integer|exists:employees,id',
-                'approvedById'          => 'required|integer|exists:employees,id',
+                'recommendedById'       => 'required|integer|in:' . implode(',', array_keys($this->validRecommenders)),
+                'approvedById'          => 'required|integer|in:' . implode(',', array_keys($this->validApprovers)),
             ]);
             $this->currentStep = 3;
         }
@@ -178,10 +185,118 @@ new class extends Component
         return Office::orderBy('name')->get();
     }
 
-    #[Computed]
-    public function employeeOptions(): array
+    private function getOfficeForSelection(): ?\App\Models\Office
     {
-        return Employee::orderBy('fullname')
+        if (empty($this->selectedIds)) {
+            return null;
+        }
+
+        $firstDist = \App\Models\CobItemDistribution::whereIn('id', $this->selectedIds)->first();
+        return $firstDist ? $firstDist->office : null;
+    }
+
+    private function getSectionHeadForUser(): ?int
+    {
+        $office = $this->getOfficeForSelection();
+        if (!$office) {
+            return null;
+        }
+
+        // Exempt Planning (PRU) and Public affairs (PAU) units, mapping them to their own UNIT_HEAD
+        if (in_array($office->acronym, ['PAU', 'PRU'])) {
+            return \App\Models\SignatoryRegistry::getActiveSignatoryFor('UNIT_HEAD', $office->id);
+        }
+
+        $section = $office->section;
+        if ($section) {
+            return \App\Models\SignatoryRegistry::getActiveSignatoryFor('SECTION_HEAD', $section->id);
+        }
+
+        return null;
+    }
+
+    public function autoSelectSignatories(): void
+    {
+        $totalCost = $this->selectionEstimatedValue;
+
+        // 1. Recommender
+        if ($totalCost >= 200000.00) {
+            $this->recommendedById = $this->getSectionHeadForUser();
+        } else {
+            $gsuOffice = \App\Models\Office::where('acronym', 'GSU')->first();
+            if ($gsuOffice) {
+                $this->recommendedById = \App\Models\SignatoryRegistry::getActiveSignatoryFor('UNIT_HEAD', $gsuOffice->id);
+            }
+        }
+
+        // 2. Approver
+        if ($totalCost >= 200000.00) {
+            $this->approvedById = \App\Models\SignatoryRegistry::getActiveSignatoryFor('RVP');
+        } else {
+            $this->approvedById = \App\Models\SignatoryRegistry::getActiveSignatoryFor('MSD_HEAD');
+        }
+    }
+
+    #[Computed]
+    public function validRecommenders(): array
+    {
+        $totalCost = $this->selectionEstimatedValue;
+        $recommenderIds = [];
+
+        if ($totalCost >= 200000.00) {
+            $sectionHeadId = $this->getSectionHeadForUser();
+            if ($sectionHeadId) {
+                $recommenderIds[] = $sectionHeadId;
+            }
+        } else {
+            $gsuOffice = \App\Models\Office::where('acronym', 'GSU')->first();
+            if ($gsuOffice) {
+                $gsuSigner = \App\Models\SignatoryRegistry::getActiveSignatoryFor('UNIT_HEAD', $gsuOffice->id);
+                if ($gsuSigner) {
+                    $recommenderIds[] = $gsuSigner;
+                }
+            }
+        }
+
+        $recommenderIds = array_filter(array_unique($recommenderIds));
+
+        if (empty($recommenderIds)) {
+            return [];
+        }
+
+        return Employee::whereIn('id', $recommenderIds)
+            ->orderBy('fullname')
+            ->get()
+            ->mapWithKeys(fn($emp) => [$emp->id => "{$emp->fullname} — {$emp->designation}"])
+            ->toArray();
+    }
+
+    #[Computed]
+    public function validApprovers(): array
+    {
+        $totalCost = $this->selectionEstimatedValue;
+        $approverIds = [];
+
+        if ($totalCost >= 200000.00) {
+            $rvpSigner = \App\Models\SignatoryRegistry::getActiveSignatoryFor('RVP');
+            if ($rvpSigner) {
+                $approverIds[] = $rvpSigner;
+            }
+        } else {
+            $msdSigner = \App\Models\SignatoryRegistry::getActiveSignatoryFor('MSD_HEAD');
+            if ($msdSigner) {
+                $approverIds[] = $msdSigner;
+            }
+        }
+
+        $approverIds = array_filter(array_unique($approverIds));
+
+        if (empty($approverIds)) {
+            return [];
+        }
+
+        return Employee::whereIn('id', $approverIds)
+            ->orderBy('fullname')
             ->get()
             ->mapWithKeys(fn($emp) => [$emp->id => "{$emp->fullname} — {$emp->designation}"])
             ->toArray();
@@ -316,9 +431,10 @@ new class extends Component
     {
         if (empty($this->selectedIds)) return;
         $this->showCompileModal = true;
-        $this->compileTrackingNumber = $this->generateNextPrNumber();
-        $this->compilePrNumber  = $this->compileTrackingNumber;
+        $this->compileTrackingNumber = $this->generateTrackingNumber();
+        $this->compilePrNumber  = $this->generateNextPrNumber();
         $this->compilePurpose   = '';
+        $this->autoSelectSignatories();
     }
 
     public function closeCompileModal(): void
@@ -335,8 +451,8 @@ new class extends Component
             'compileTrackingNumber' => 'required|string|max:50|unique:procurement_folders,tracking_number,' . ($this->folderId ?? 'NULL') . ',id',
             'compilePrNumber'       => 'required|string|max:50|unique:procurement_folders,pr_number,' . ($this->folderId ?? 'NULL') . ',id',
             'compilePurpose'        => 'required|string|max:1000',
-            'recommendedById'       => 'required|integer|exists:employees,id',
-            'approvedById'          => 'required|integer|exists:employees,id',
+            'recommendedById'       => 'required|integer|in:' . implode(',', array_keys($this->validRecommenders)),
+            'approvedById'          => 'required|integer|in:' . implode(',', array_keys($this->validApprovers)),
         ]);
 
         if (empty($this->selectedIds)) {
@@ -488,8 +604,8 @@ new class extends Component
         $this->selectedIds      = [];
         $this->showCompileModal = false;
         $this->folderId         = null;
-        $this->compileTrackingNumber = $this->generateNextPrNumber();
-        $this->compilePrNumber  = $this->compileTrackingNumber;
+        $this->compileTrackingNumber = $this->generateTrackingNumber();
+        $this->compilePrNumber  = $this->generateNextPrNumber();
         $this->compilePurpose   = '';
         $this->requestedById    = null;
         $this->recommendedById  = null;
@@ -960,11 +1076,11 @@ new class extends Component
                                 <div class="relative">
                                     <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[#001e40] text-[18px]">edit_note</span>
                                     <input type="text" wire:model="compilePrNumber"
-                                           placeholder="e.g. PR-2026-00042"
+                                           placeholder="e.g. 2601PR-001"
                                            class="w-full pl-9 pr-4 py-3 bg-[#f9f9fe] border border-[#c3c6d1] rounded-xl text-sm focus:ring-2 focus:ring-[#001e40] outline-none transition-all font-mono font-bold text-[#001e40]"/>
                                 </div>
                                 @error('compilePrNumber') <p class="text-[11px] text-[#ba1a1a] mt-1">{{ $message }}</p> @enderror
-                                <p class="text-[9px] text-[#43474f]/60 mt-1">Initially matches recommended tracking. You may customize it.</p>
+                                <p class="text-[9px] text-[#43474f]/60 mt-1">Initially matches the next available PR series format (YYMMPR-XXX). You may customize it.</p>
                             </div>
                         </div>
 
@@ -979,7 +1095,7 @@ new class extends Component
                                                icon="recommend" 
                                                searchable
                                                wire:model="recommendedById" 
-                                               :options="$this->employeeOptions" />
+                                               :options="$this->validRecommenders" />
                                 @error('recommendedById') <p class="text-[11px] text-[#ba1a1a] mt-1">{{ $message }}</p> @enderror
                             </div>
 
@@ -992,7 +1108,7 @@ new class extends Component
                                                icon="person_check" 
                                                searchable
                                                wire:model="approvedById" 
-                                               :options="$this->employeeOptions" />
+                                               :options="$this->validApprovers" />
                                 @error('approvedById') <p class="text-[11px] text-[#ba1a1a] mt-1">{{ $message }}</p> @enderror
                             </div>
                         </div>
