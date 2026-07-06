@@ -81,11 +81,14 @@ new #[Layout('layouts.app')] class extends Component
                 'gsu_accepted_by_id'  => $actor->id,
             ]);
 
+            $hasABC = $this->folder->prItems->sum(fn($item) => (float) ($item->estimated_unit_cost ?? $item->unit_cost ?? 0.0)) > 0.0;
+            $signedDocs = $hasABC ? 'Approved Budget for the Contract (ABC)' : 'None (No ABC generated)';
+
             ProcurementLog::create([
                 'procurement_folder_id' => $this->folder->id,
                 'action'                => 'APPROVED',
                 'actor_id'              => $actor->id,
-                'remarks'               => "Purchase Request accepted by GSU and routed for signatures with official PR Number: {$this->prNumber}. The physical document package is verified and enroute to the division Recommending Officer.",
+                'remarks'               => "Purchase Request accepted by GSU and routed for signatures with official PR Number: {$this->prNumber}. Digitally signed: {$signedDocs}.",
             ]);
         });
 
@@ -346,7 +349,7 @@ new #[Layout('layouts.app')] class extends Component
                 </div>
             </div>
 
-            {{-- COA Compliance Note --}}
+            {{-- Compliance Reminders --}}
             <div class="bg-white p-6 border border-[#c3c6d1] rounded-2xl shadow-sm text-xs space-y-3">
                 <h4 class="font-bold text-[#001e40] flex items-center gap-1 border-b border-[#eeedf2] pb-1.5">
                     <span class="material-symbols-outlined text-sm">gavel</span>
@@ -355,7 +358,7 @@ new #[Layout('layouts.app')] class extends Component
                 <div class="space-y-2 text-[#43474f] leading-relaxed">
                     <p>1. <strong>Physical vs. Digital Match:</strong> Ensure the physical documents received match the compiled system record before accepting.</p>
                     <p>2. <strong>Completeness Check:</strong> Verify all items listed in the Cover Letter's document checklist are present in the physical package.</p>
-                    <p>3. <strong>Sequential PR Numbering:</strong> Assign the next official PR number in sequence to maintain COA audit compliance.</p>
+                    <p>3. <strong>Sequential PR Numbering:</strong> Assign the next official PR number in sequence to maintain audit compliance.</p>
                 </div>
             </div>
 

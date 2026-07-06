@@ -40,7 +40,7 @@ new #[Layout('layouts.app')] class extends Component
     // Approver/Recommender: which drawer row is expanded
     public ?string $expandedDrawerId = null;
 
-    // GSU Triage Box State
+    // GSU Inbox State
     public string $activeTab = 'registry';
 
     #[On('pr-created')]
@@ -378,7 +378,7 @@ new #[Layout('layouts.app')] class extends Component
         $totalActive = ProcurementFolder::whereNotIn('status', ['PO_RELEASED'])->count();
         $totalPending = ProcurementFolder::where('status', 'DRAFT')->count();
 
-        // GSU Triage Box data
+        // GSU Inbox data
         $triageQuery = ProcurementFolder::where('status', 'SUBMITTED_TO_GSU')->with(['prItems.appLineItem']);
         $triageCount = $triageQuery->count();
         $triageFolders = $triageQuery->orderBy('created_at', 'desc')->get();

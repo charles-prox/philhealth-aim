@@ -182,15 +182,15 @@ new #[Layout('layouts.app')] class extends Component
                 'action' => $hasRejection ? 'RESUBMITTED' : 'SUBMITTED',
                 'actor_id' => $actor->id,
                 'remarks' => $hasRejection 
-                    ? 'PR resubmitted to GSU Triage Box with corrections. The corrected physical copies of the documents listed in the Cover Letter are enroute to the GSU Procurement Officer.' 
-                    : 'PR submitted to GSU Triage Box. The physical copies of the documents mentioned in the Cover Letter are enroute to the GSU Procurement Officer for triage and verification.',
+                    ? 'PR resubmitted to GSU Inbox. Digitally signed: Purchase Request (PR) and Cover Letter.' 
+                    : 'PR submitted to GSU Inbox. Digitally signed: Purchase Request (PR) and Cover Letter.',
             ]);
         });
 
         // Regenerate PDFs with end-user signature stamp
         \App\Jobs\GenerateProcurementDocumentsJob::dispatchSync($folder);
 
-        $this->successMessage = "PR submitted to GSU Triage successfully!";
+        $this->successMessage = "PR submitted to GSU Inbox successfully!";
     }
 
     public function cancelSubmission($id)
@@ -206,7 +206,7 @@ new #[Layout('layouts.app')] class extends Component
         }
 
         if ($folder->status !== 'SUBMITTED_TO_GSU') {
-            $this->errorMessage = "Only submitted PRs that have not been triaged can be cancelled.";
+            $this->errorMessage = "Only submitted PRs that have not been accepted can be cancelled.";
             return;
         }
 

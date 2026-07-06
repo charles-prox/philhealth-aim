@@ -73,15 +73,15 @@ new #[Layout('layouts.app')] class extends Component
                 'action'                => $hasRejection ? 'RESUBMITTED' : 'SUBMITTED',
                 'actor_id'              => $actor->id,
                 'remarks'               => $hasRejection 
-                    ? 'PR resubmitted to GSU Triage Box with signature verified. Hard copies are enroute to GSU.' 
-                    : 'PR submitted to GSU Triage Box. Physical copies verified, signed, and enroute to GSU.',
+                    ? 'PR resubmitted to GSU Inbox. Digitally signed: Purchase Request (PR) and Cover Letter.' 
+                    : 'PR submitted to GSU Inbox. Digitally signed: Purchase Request (PR) and Cover Letter.',
             ]);
         });
 
         // Regenerate PDFs with end-user signature stamp
         \App\Jobs\GenerateProcurementDocumentsJob::dispatchSync($this->folder);
 
-        session()->flash('success', "PR submitted to GSU Triage successfully!");
+        session()->flash('success', "PR submitted to GSU Inbox successfully!");
         
         $user = auth()->user();
         if ($user->hasAnyRole(['Admin', 'Procurement Officer'])) {

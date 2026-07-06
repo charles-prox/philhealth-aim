@@ -32,7 +32,7 @@ class Employee extends Model
         $user = $this->user;
         if ($user) {
             if ($user->hasAnyRole(['Admin', 'Procurement Officer', 'admin', 'gsu', 'gsu-member'])
-                || in_array($this->designation, ['GSU Triage Officer', 'GSU Officer', 'GSU Review Officer'])) {
+                || in_array($this->designation, ['GSU Officer', 'GSU Review Officer'])) {
                 return true;
             }
         }

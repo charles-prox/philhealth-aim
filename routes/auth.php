@@ -30,9 +30,9 @@ Route::middleware('auth')->group(function () {
 
     Volt::route('verify-2fa', 'pages.auth.verify-2fa')
         ->name('verify-2fa');
-
-    Route::post('logout', function (\App\Livewire\Actions\Logout $logout) {
-        $logout();
-        return redirect('/');
-    })->name('logout');
 });
+
+Route::match(['get', 'post'], 'logout', function (\App\Livewire\Actions\Logout $logout) {
+    $logout();
+    return redirect('/');
+})->name('logout');

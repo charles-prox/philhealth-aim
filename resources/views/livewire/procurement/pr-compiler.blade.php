@@ -498,7 +498,7 @@ new class extends Component
         \App\Jobs\GenerateProcurementDocumentsJob::dispatchSync($folder);
 
         session()->flash('status', 'PR compiled successfully! Please review and sign the documents before submitting.');
-        return $this->redirectRoute('procurement.review', ['folderId' => $folder->id], navigate: true);
+        $this->redirectRoute('procurement.review', ['folderId' => $folder->id], navigate: true);
     }
 
     // -------------------------------------------------------------------------

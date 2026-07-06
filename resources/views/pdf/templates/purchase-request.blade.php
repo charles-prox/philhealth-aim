@@ -231,6 +231,117 @@
             display: block;
             font-size: 11px;
         }
+
+        /* Comptrollership Stamp Styles */
+        .comptrollership-container {
+            width: 100%;
+            max-width: 280px;
+            margin: 8px auto 0 auto;
+            border: 1.5px solid #1e3a8a;
+            padding: 6px 10px;
+            box-sizing: border-box;
+            background-color: #f0f4f8;
+            font-family: 'Courier New', Courier, monospace;
+            font-weight: bold;
+            font-size: 8px;
+            color: #1e3a8a;
+            border-radius: 4px;
+            text-align: left;
+            line-height: 1.2;
+        }
+
+        .comptrollership-header {
+            text-align: left;
+            font-weight: bold;
+            font-size: 9px;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+            text-transform: uppercase;
+            color: #1e3a8a;
+        }
+
+        .comptrollership-table-stamp {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 0;
+            padding: 0;
+            border: none !important;
+        }
+
+        .comptrollership-table-stamp tr {
+            border: none !important;
+        }
+
+        .comptrollership-table-stamp td {
+            border: none !important;
+            padding: 1px 0 !important;
+            vertical-align: bottom !important;
+            font-size: 8px;
+            font-family: 'Courier New', Courier, monospace;
+            font-weight: bold;
+            color: #1e3a8a;
+        }
+
+        .comptrollership-label-td {
+            width: 90px;
+            text-transform: uppercase;
+            white-space: nowrap;
+        }
+
+        .comptrollership-value-td {
+            border-bottom: 1px dotted #1e3a8a !important;
+            padding-left: 4px !important;
+            text-align: left;
+        }
+
+        .comptrollership-separator {
+            border: 0;
+            border-top: 1px dashed #1e3a8a;
+            margin: 6px 0 4px 0;
+            width: 100%;
+        }
+
+        .comptrollership-footer {
+            margin-top: 2px;
+            width: 100%;
+            display: block;
+            text-align: center;
+        }
+
+        .comptrollership-signature-block {
+            display: inline-block;
+            width: 100%;
+            vertical-align: top;
+            text-align: center;
+        }
+
+        .comptrollership-digital-sign {
+            font-size: 7px;
+            font-family: 'Courier New', Courier, monospace;
+            font-weight: bold;
+            text-align: center;
+            margin-bottom: 3px;
+            color: #1e3a8a;
+            line-height: 1.1;
+        }
+
+        .comptrollership-name {
+            font-weight: bold;
+            font-size: 9px;
+            text-decoration: underline;
+            text-transform: uppercase;
+            margin-bottom: 1px;
+            display: inline-block;
+            color: #1e3a8a;
+        }
+
+        .comptrollership-title {
+            font-size: 7.5px;
+            color: #1e3a8a;
+            font-style: italic;
+            line-height: 1.1;
+            font-weight: bold;
+        }
     </style>
 </head>
 
@@ -376,22 +487,47 @@
                                 <td class="text-center"
                                     style="vertical-align: top; padding-top: 10px; font-weight: bold;">
                                     <div>***Nothing Follows***</div>
-                                    @if($folder->budget_signed_at)
-                                        <div
-                                            style="margin-top: 15px; border: 1.5px solid #1e3a8a; padding: 6px 10px; background-color: #f0f4f8; display: inline-block; text-align: left; font-family: 'Courier New', monospace; font-size: 8.5px; color: #1e3a8a; font-weight: bold; border-radius: 4px; line-height: 1.3;">
-                                            <div
-                                                style="text-align: center; font-size: 9px; border-bottom: 1px solid #1e3a8a; padding-bottom: 2px; margin-bottom: 4px; letter-spacing: 0.5px;">
-                                                BUDGET CERTIFIED</div>
-                                            <div>PPA Code: {{ $folder->budget_ppa_code }}</div>
-                                            <div>Budget Code: {{ $folder->budget_code }}</div>
-                                            <div
-                                                style="margin-top: 4px; border-top: 1px dashed #1e3a8a; padding-top: 2px; text-align: center; font-size: 7.5px;">
-                                                DIGITALLY SIGNED<br>
-                                                {{ $folder->budgetSignedBy->fullname ?? 'Budget Officer' }}<br>
-                                                {{ $folder->budget_signed_at->format('Y-m-d H:i:s') }}
-                                            </div>
-                                        </div>
-                                    @endif
+                                     @if($folder->budget_signed_at)
+                                          <div class="comptrollership-container">
+                                              <div class="comptrollership-header">
+                                                  Comptrollership Unit-PRO-X
+                                              </div>
+
+                                              <table class="comptrollership-table-stamp">
+                                                  <tr>
+                                                      <td class="comptrollership-label-td">Fund C.O.R:</td>
+                                                      <td class="comptrollership-value-td">{{ $folder->budget_cob_year }}</td>
+                                                  </tr>
+                                                  <tr>
+                                                      <td class="comptrollership-label-td">Expense Code:</td>
+                                                      <td class="comptrollership-value-td">{{ $folder->budget_code }}</td>
+                                                  </tr>
+                                                  <tr>
+                                                      <td class="comptrollership-label-td">Charge To:</td>
+                                                      <td class="comptrollership-value-td">{{ $folder->budget_ppa_code }}</td>
+                                                  </tr>
+                                                  <tr>
+                                                      <td class="comptrollership-label-td">Remarks:</td>
+                                                      <td class="comptrollership-value-td">{{ $folder->budget_remarks ?: 'N/A' }}</td>
+                                                  </tr>
+                                              </table>
+
+                                              <!-- Section Separator Line -->
+                                              <hr class="comptrollership-separator">
+
+                                              <div class="comptrollership-footer">
+                                                  <div class="comptrollership-signature-block">
+                                                      <div class="comptrollership-digital-sign">
+                                                          DIGITALLY SIGNED<br>
+                                                          {{ $folder->budget_signed_at->format('Y-m-d H:i:s') }}
+                                                      </div>
+                                                      <div class="comptrollership-name">{{ $folder->budgetSignedBy->fullname ?? 'Alia Asum' }}</div>
+                                                      <div class="comptrollership-title">{{ $folder->budgetSignedBy->designation ?? 'Fiscal Examiner A' }}</div>
+                                                      <div class="comptrollership-title">Budget Officer Designate</div>
+                                                  </div>
+                                              </div>
+                                          </div>
+                                     @endif
                                 </td>
                                 <td></td>
                                 <td></td>

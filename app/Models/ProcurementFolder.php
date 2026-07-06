@@ -146,6 +146,8 @@ class ProcurementFolder extends Model
         'budget_signed_by_id',
         'budget_ppa_code',
         'budget_code',
+        'budget_cob_year',
+        'budget_remarks',
     ];
 
     protected $casts = [
@@ -258,11 +260,14 @@ class ProcurementFolder extends Model
                 'budget_signed_by_id' => $employeeId,
             ]);
 
+            $hasABC = $this->prItems->sum(fn($item) => (float) ($item->estimated_unit_cost ?? $item->unit_cost ?? 0.0)) > 0.0;
+            $signedDocs = $hasABC ? 'Purchase Request (PR) and Approved Budget for the Contract (ABC)' : 'Purchase Request (PR)';
+
             \App\Models\ProcurementLog::create([
                 'procurement_folder_id' => $this->id,
                 'action' => 'BUDGET_VERIFIED',
                 'actor_id' => $employeeId,
-                'remarks' => 'Budget checked and confirmed on PR and ABC.',
+                'remarks' => "Budget checked and confirmed on {$signedDocs}. Digitally signed: {$signedDocs}.",
                 'created_at' => now(),
             ]);
 
@@ -277,7 +282,7 @@ class ProcurementFolder extends Model
                 'procurement_folder_id' => $this->id,
                 'action' => 'RECOMMENDED',
                 'actor_id' => $employeeId,
-                'remarks' => 'PR recommended via Unified Approval Desk.',
+                'remarks' => 'PR recommended via Unified Approval Desk. Digitally signed: Purchase Request (PR).',
                 'created_at' => now(),
             ]);
 
@@ -289,11 +294,16 @@ class ProcurementFolder extends Model
                 'approved_signed_at' => now(),
             ]);
 
+            $hasABC = $this->prItems->sum(fn($item) => (float) ($item->estimated_unit_cost ?? $item->unit_cost ?? 0.0)) > 0.0;
+            $rvpSignerId = \App\Models\SignatoryRegistry::getActiveSignatoryFor('RVP');
+            $isRvp = ($employeeId === $rvpSignerId);
+            $signedDocs = ($hasABC && $isRvp) ? 'Purchase Request (PR) and Approved Budget for the Contract (ABC)' : 'Purchase Request (PR)';
+
             \App\Models\ProcurementLog::create([
                 'procurement_folder_id' => $this->id,
                 'action' => 'APPROVED',
                 'actor_id' => $employeeId,
-                'remarks' => 'PR approved via Unified Approval Desk.',
+                'remarks' => "PR approved via Unified Approval Desk. Digitally signed: {$signedDocs}.",
                 'created_at' => now(),
             ]);
 

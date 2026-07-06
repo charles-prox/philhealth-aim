@@ -83,7 +83,7 @@ new #[Layout('layouts.app')] class extends Component
     <div class="bg-white border border-[#c3c6d1] rounded-2xl shadow-sm overflow-hidden">
         <div class="p-gutter border-b border-[#c3c6d1] bg-[#f9f9fe]">
             <h3 class="font-h2 text-h2 text-[#001e40]">Tasks Requiring Your Signature</h3>
-            <p class="text-xs text-[#43474f] mt-1">Review the document details thoroughly before signing off. Blind approvals are prohibited by COA audit rules.</p>
+            <p class="text-xs text-[#43474f] mt-1">Review the document details thoroughly before signing off. Blind approvals are prohibited.</p>
         </div>
 
         <!-- Tabs Selector -->

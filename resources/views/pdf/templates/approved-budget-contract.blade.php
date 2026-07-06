@@ -414,7 +414,7 @@
                             <div class="sig-col">
                                 <div class="sig-section">
                                     <p><strong>Approved By:</strong></p>
-                                    @if($folder->approved_signed_at)
+                                    @if($folder->approved_signed_at && $folder->approved_by_id === $rvpSignerId)
                                         <div style="font-family: 'Courier New', monospace; font-size: 8px; color: #1e3a8a; line-height: 1.2; border: 1px dashed #1e3a8a; padding: 4px; display: inline-block; margin-top: 10px; text-align: center; width: 100%;">
                                             <strong>DIGITALLY SIGNED</strong><br>
                                             {{ $folder->approved_signed_at->format('Y-m-d H:i:s') }}

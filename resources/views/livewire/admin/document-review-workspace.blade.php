@@ -14,6 +14,8 @@ new #[Layout('layouts.app')] class extends Component
     public bool $isBudgetOfficer = false;
     public string $budgetPpaCode = '';
     public string $budgetCode = '';
+    public string $budgetCobYear = '';
+    public string $budgetRemarks = '';
 
     public bool $hasOlderPending = false;
     public ?ApprovalTask $oldestPendingTask = null;
@@ -41,6 +43,8 @@ new #[Layout('layouts.app')] class extends Component
             $folder = $this->task->document;
             $this->budgetPpaCode = $folder->budget_ppa_code ?: ($folder->prItems->first()?->cobItem?->sub_ppa_code ?? $folder->prItems->first()?->cobItem?->ppa_code ?? '');
             $this->budgetCode = $folder->budget_code ?: ($folder->prItems->first()?->cobItem?->account ?? $folder->prItems->first()?->cobItem?->exp_desc ?? '');
+            $this->budgetCobYear = $folder->budget_cob_year ?: (\App\Models\BudgetYear::where('status', 'OPEN')->value('fiscal_year') ?? now()->year);
+            $this->budgetRemarks = $folder->budget_remarks ?? '';
         }
 
         // Security Guard: Check if the logged in user is the target signatory
@@ -94,15 +98,20 @@ new #[Layout('layouts.app')] class extends Component
         if ($this->isBudgetOfficer) {
             $this->validate([
                 'budgetPpaCode' => 'required|string|max:100',
-                'budgetCode' => 'required|string|max:100',
+                'budgetCode'    => 'required|string|max:100',
+                'budgetCobYear' => 'required|string|max:50',
+                'budgetRemarks' => 'nullable|string|max:1000',
             ], [
-                'budgetPpaCode.required' => 'Operational Rule: You must verify and enter the PPA Code.',
-                'budgetCode.required' => 'Operational Rule: You must verify and enter the Budget Code.',
+                'budgetPpaCode.required' => 'Operational Rule: You must verify and enter the Charge To / PPA Code.',
+                'budgetCode.required'    => 'Operational Rule: You must verify and enter the Expense Code.',
+                'budgetCobYear.required' => 'Operational Rule: You must verify and enter the Fund C.O.R / COB Year.',
             ]);
 
             $this->task->document->update([
                 'budget_ppa_code' => $this->budgetPpaCode,
-                'budget_code' => $this->budgetCode,
+                'budget_code'     => $this->budgetCode,
+                'budget_cob_year' => $this->budgetCobYear,
+                'budget_remarks'  => $this->budgetRemarks,
             ]);
         }
 
@@ -323,21 +332,31 @@ new #[Layout('layouts.app')] class extends Component
                                 <div class="p-4 bg-blue-50 border border-blue-200 rounded-xl space-y-3 mb-2 text-xs">
                                     <div class="font-bold text-[#001e40] flex items-center gap-1.5">
                                         <span class="material-symbols-outlined text-[16px]">account_balance_wallet</span>
-                                        Budget Code Certification Stamp
+                                        Comptrollership Certification Stamp
                                     </div>
                                     <p class="text-[10px] text-[#43474f] leading-relaxed">
-                                        Confirm and verify the PPA Code and Budget Code below. These will be stamped directly onto the PR document.
+                                        Enter the certification details below. These will be stamped directly onto the PR document.
                                     </p>
                                     <div class="space-y-2">
                                         <div>
-                                            <label class="block text-[10px] font-bold uppercase tracking-wider text-[#43474f] mb-1">PPA Code <span class="text-red-600">*</span></label>
+                                            <label class="block text-[10px] font-bold uppercase tracking-wider text-[#43474f] mb-1">Fund C.O.R (COB Year) <span class="text-red-600">*</span></label>
+                                            <input type="text" wire:model="budgetCobYear" class="w-full text-xs px-3 py-2 bg-white border border-[#c3c6d1] rounded-lg outline-none focus:ring-1 focus:ring-[#001e40] font-mono" placeholder="e.g. 2026">
+                                            @error('budgetCobYear') <span class="text-[10px] text-[#ba1a1a] font-bold mt-0.5 block">{{ $message }}</span> @enderror
+                                        </div>
+                                        <div>
+                                            <label class="block text-[10px] font-bold uppercase tracking-wider text-[#43474f] mb-1">Expense Code <span class="text-red-600">*</span></label>
+                                            <input type="text" wire:model="budgetCode" class="w-full text-xs px-3 py-2 bg-white border border-[#c3c6d1] rounded-lg outline-none focus:ring-1 focus:ring-[#001e40] font-mono" placeholder="e.g. Traveling Expenses / 5020101000">
+                                            @error('budgetCode') <span class="text-[10px] text-[#ba1a1a] font-bold mt-0.5 block">{{ $message }}</span> @enderror
+                                        </div>
+                                        <div>
+                                            <label class="block text-[10px] font-bold uppercase tracking-wider text-[#43474f] mb-1">Charge To (PPA Code) <span class="text-red-600">*</span></label>
                                             <input type="text" wire:model="budgetPpaCode" class="w-full text-xs px-3 py-2 bg-white border border-[#c3c6d1] rounded-lg outline-none focus:ring-1 focus:ring-[#001e40] font-mono" placeholder="e.g. A.XII.f.X.a.01">
                                             @error('budgetPpaCode') <span class="text-[10px] text-[#ba1a1a] font-bold mt-0.5 block">{{ $message }}</span> @enderror
                                         </div>
                                         <div>
-                                            <label class="block text-[10px] font-bold uppercase tracking-wider text-[#43474f] mb-1">Budget Code / Account <span class="text-red-600">*</span></label>
-                                            <input type="text" wire:model="budgetCode" class="w-full text-xs px-3 py-2 bg-white border border-[#c3c6d1] rounded-lg outline-none focus:ring-1 focus:ring-[#001e40] font-mono" placeholder="e.g. Traveling Expenses">
-                                            @error('budgetCode') <span class="text-[10px] text-[#ba1a1a] font-bold mt-0.5 block">{{ $message }}</span> @enderror
+                                            <label class="block text-[10px] font-bold uppercase tracking-wider text-[#43474f] mb-1">Remarks</label>
+                                            <textarea wire:model="budgetRemarks" rows="2" class="w-full text-xs px-3 py-2 bg-white border border-[#c3c6d1] rounded-lg outline-none focus:ring-1 focus:ring-[#001e40]" placeholder="Optional remarks..."></textarea>
+                                            @error('budgetRemarks') <span class="text-[10px] text-[#ba1a1a] font-bold mt-0.5 block">{{ $message }}</span> @enderror
                                         </div>
                                     </div>
                                 </div>
@@ -471,7 +490,7 @@ new #[Layout('layouts.app')] class extends Component
             <div class="bg-white p-6 border border-[#c3c6d1] rounded-2xl shadow-sm text-xs space-y-3">
                 <h4 class="font-bold text-[#001e40] flex items-center gap-1 border-b border-[#eeedf2] pb-1.5">
                     <span class="material-symbols-outlined text-sm">gavel</span>
-                    COA Internal Controls
+                    Internal Controls Reminder
                 </h4>
                 <div class="space-y-2 text-[#43474f] leading-relaxed">
                     <p>1. <strong>Strict Viewport Audit:</strong> Reviewers must open this viewport to verify document context before signatures can be digitally verified. Bypasses will be auto-flagged.</p>
