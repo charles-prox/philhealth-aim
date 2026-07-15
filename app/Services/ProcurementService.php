@@ -3,15 +3,16 @@
 namespace App\Services;
 
 use App\Jobs\GenerateProcurementDocumentsJob;
+use App\Models\AppHeader;
 use App\Models\AppLineItem;
+use App\Models\BudgetYear;
+use App\Models\CobItemDistribution;
 use App\Models\Employee;
 use App\Models\PrItem;
 use App\Models\ProcurementFolder;
 use App\Models\ProcurementLog;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
-use App\Models\AppHeader;
-use App\Models\CobItemDistribution;
 
 class ProcurementService
 {
@@ -171,10 +172,10 @@ class ProcurementService
         $errors = [];
 
         foreach ($basket as $basketKey => $itemData) {
-            $qty      = (int) ($itemData['qty'] ?? 0);
+            $qty = (int) ($itemData['qty'] ?? 0);
             $unitCost = (float) ($itemData['unit_cost'] ?? 0.0);
-            $desc     = $itemData['description'] ?? '';
-            $unit     = $itemData['unit'] ?? '';
+            $desc = $itemData['description'] ?? '';
+            $unit = $itemData['unit'] ?? '';
 
             if (empty($desc)) {
                 $errors["{$basketKey}.description"] = 'Particulars/description is required.';
@@ -193,7 +194,7 @@ class ProcurementService
         // Budget availability check — grouped by APP line item
         $totalsByAppLine = collect($basket)
             ->groupBy('app_line_item_id')
-            ->map(fn($items) => $items->sum(fn($i) => (int)$i['qty'] * (float)$i['unit_cost']));
+            ->map(fn ($items) => $items->sum(fn ($i) => (int) $i['qty'] * (float) $i['unit_cost']));
 
         foreach ($totalsByAppLine as $appLineItemId => $totalCost) {
             $appLineItem = AppLineItem::find($appLineItemId);
@@ -243,14 +244,14 @@ class ProcurementService
         $requestedByDesignation = $requestedEmployee?->designation ?? 'Requesting Officer';
 
         $recommendedEmployee = Employee::findOrFail((int) $folderData['recommendedById']);
-        $approvedEmployee    = Employee::findOrFail((int) $folderData['approvedById']);
+        $approvedEmployee = Employee::findOrFail((int) $folderData['approvedById']);
 
         $distributions = CobItemDistribution::whereIn('id', $selectedIds)
             ->where(function ($q) use ($folderId) {
                 $q->whereNull('pr_item_id')
-                  ->orWhereHas('prItem', function ($sq) use ($folderId) {
-                      $sq->where('folder_id', $folderId);
-                  });
+                    ->orWhereHas('prItem', function ($sq) use ($folderId) {
+                        $sq->where('folder_id', $folderId);
+                    });
             })
             ->whereNull('deleted_at')
             ->with(['cobItem'])
@@ -275,7 +276,7 @@ class ProcurementService
                 }
 
                 // Release old allocations
-                CobItemDistribution::whereHas('prItem', function($q) use ($folderId) {
+                CobItemDistribution::whereHas('prItem', function ($q) use ($folderId) {
                     $q->where('folder_id', $folderId);
                 })->update([
                     'pr_item_id' => null,
@@ -287,36 +288,36 @@ class ProcurementService
 
                 // Update folder
                 $folder->update([
-                    'tracking_number'              => $folderData['trackingNumber'],
-                    'pr_number'                    => $folderData['prNumber'],
-                    'overall_purpose'              => $folderData['purpose'],
-                    'requesting_unit'              => $requestedEmployee?->office_division,
-                    'requested_by_id'              => $requestedById,
-                    'requested_by_designation'     => $requestedByDesignation,
-                    'recommended_by_id'            => $folderData['recommendedById'],
-                    'recommended_by_designation'   => $recommendedEmployee->designation,
-                    'approved_by_id'               => $folderData['approvedById'],
-                    'approved_by_designation'      => $approvedEmployee->designation,
-                    'office_id'                    => auth()->user()->office_id,
-                    'created_by_id'                => auth()->id(),
+                    'tracking_number' => $folderData['trackingNumber'],
+                    'pr_number' => $folderData['prNumber'],
+                    'overall_purpose' => $folderData['purpose'],
+                    'requesting_unit' => $requestedEmployee?->office_division,
+                    'requested_by_id' => $requestedById,
+                    'requested_by_designation' => $requestedByDesignation,
+                    'recommended_by_id' => $folderData['recommendedById'],
+                    'recommended_by_designation' => $recommendedEmployee->designation,
+                    'approved_by_id' => $folderData['approvedById'],
+                    'approved_by_designation' => $approvedEmployee->designation,
+                    'office_id' => auth()->user()->office_id,
+                    'created_by_id' => auth()->id(),
                 ]);
             } else {
                 $folder = ProcurementFolder::create([
-                    'tracking_number'              => $folderData['trackingNumber'],
-                    'pr_number'                    => $folderData['prNumber'],
-                    'project_title'                => 'PR compiled from COB on ' . now()->format('Y-m-d H:i'),
-                    'procurement_method'           => 'Shopping',
-                    'overall_purpose'              => $folderData['purpose'],
-                    'status'                       => 'DRAFT',
-                    'requesting_unit'              => $requestedEmployee?->office_division,
-                    'requested_by_id'              => $requestedById,
-                    'requested_by_designation'     => $requestedByDesignation,
-                    'recommended_by_id'            => $folderData['recommendedById'],
-                    'recommended_by_designation'   => $recommendedEmployee->designation,
-                    'approved_by_id'               => $folderData['approvedById'],
-                    'approved_by_designation'      => $approvedEmployee->designation,
-                    'office_id'                    => auth()->user()->office_id,
-                    'created_by_id'                => auth()->id(),
+                    'tracking_number' => $folderData['trackingNumber'],
+                    'pr_number' => $folderData['prNumber'],
+                    'project_title' => 'PR compiled from COB on ' . now()->format('Y-m-d H:i'),
+                    'procurement_method' => 'Shopping',
+                    'overall_purpose' => $folderData['purpose'],
+                    'status' => 'DRAFT',
+                    'requesting_unit' => $requestedEmployee?->office_division,
+                    'requested_by_id' => $requestedById,
+                    'requested_by_designation' => $requestedByDesignation,
+                    'recommended_by_id' => $folderData['recommendedById'],
+                    'recommended_by_designation' => $recommendedEmployee->designation,
+                    'approved_by_id' => $folderData['approvedById'],
+                    'approved_by_designation' => $approvedEmployee->designation,
+                    'office_id' => auth()->user()->office_id,
+                    'created_by_id' => auth()->id(),
                 ]);
             }
 
@@ -324,13 +325,13 @@ class ProcurementService
             $grouped = $distributions->groupBy('cob_item_id');
 
             foreach ($grouped as $cobItemId => $distGroup) {
-                $cobItem   = $distGroup->first()->cobItem;
-                $totalQty  = $distGroup->sum('allocated_quantity');
-                $recomQty  = $cobItem?->recom_qty ?? 0;
-                $unitCost  = $recomQty > 0 ? ((float) ($cobItem?->recom_amount ?? 0) / $recomQty) : 0.0;
+                $cobItem = $distGroup->first()->cobItem;
+                $totalQty = $distGroup->sum('allocated_quantity');
+                $recomQty = $cobItem?->recom_qty ?? 0;
+                $unitCost = $recomQty > 0 ? ((float) ($cobItem?->recom_amount ?? 0) / $recomQty) : 0.0;
 
                 $appLineItemId = null;
-                $currentYear = \App\Models\BudgetYear::where('status', 'OPEN')->value('fiscal_year') ?? now()->year;
+                $currentYear = BudgetYear::where('status', 'OPEN')->value('fiscal_year') ?? now()->year;
                 $header = AppHeader::where('fiscal_year', $currentYear)
                     ->where('is_approved', true)
                     ->first();
@@ -338,19 +339,19 @@ class ProcurementService
                     $matchedLine = AppLineItem::where('app_header_id', $header->id)
                         ->where(function ($q) use ($cobItem) {
                             $q->where('description', 'like', '%' . $cobItem->full_particulars . '%')
-                              ->orWhere('project_title', 'like', '%' . $cobItem->full_particulars . '%')
-                              ->orWhere('description', 'like', '%' . $cobItem->exp_desc . '%');
+                                ->orWhere('project_title', 'like', '%' . $cobItem->full_particulars . '%')
+                                ->orWhere('description', 'like', '%' . $cobItem->exp_desc . '%');
                         })
                         ->first();
                     $appLineItemId = $matchedLine?->id;
                 }
 
                 $prItem = PrItem::create([
-                    'folder_id'           => $folder->id,
-                    'cob_item_id'         => $cobItemId,
-                    'app_line_item_id'    => $appLineItemId,
-                    'total_qty'           => $totalQty,
-                    'unit_cost'           => $unitCost,
+                    'folder_id' => $folder->id,
+                    'cob_item_id' => $cobItemId,
+                    'app_line_item_id' => $appLineItemId,
+                    'total_qty' => $totalQty,
+                    'unit_cost' => $unitCost,
                     'estimated_unit_cost' => $unitCost,
                 ]);
 
@@ -360,17 +361,16 @@ class ProcurementService
 
                 CobItemDistribution::whereIn('id', $distGroup->pluck('id'))
                     ->update([
-                        'pr_item_id'         => $prItem->id,
-                        'procured_quantity'   => DB::raw('allocated_quantity'),
+                        'pr_item_id' => $prItem->id,
+                        'procured_quantity' => DB::raw('allocated_quantity'),
                     ]);
             }
 
             return $folder;
         });
 
-        \App\Jobs\GenerateProcurementDocumentsJob::dispatchSync($folder);
+        GenerateProcurementDocumentsJob::dispatchSync($folder);
 
         return $folder;
     }
 }
-

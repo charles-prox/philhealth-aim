@@ -2,8 +2,10 @@
 
 namespace App\Services;
 
+use App\Models\Employee;
 use App\Models\Office;
 use App\Models\SignatoryRegistry;
+use Illuminate\Support\Collection;
 
 class SignatoryService
 {
@@ -106,31 +108,33 @@ class SignatoryService
     /**
      * Returns mapped options of valid recommenders.
      */
-    public static function getValidRecommendersOptions(float $totalCost, ?Office $office): \Illuminate\Support\Collection
+    public static function getValidRecommendersOptions(float $totalCost, ?Office $office): Collection
     {
         $ids = self::getValidRecommenderIds($totalCost, $office);
         if (empty($ids)) {
             return collect();
         }
-        return \App\Models\Employee::whereIn('id', $ids)
+
+        return Employee::whereIn('id', $ids)
             ->orderBy('fullname')
             ->get()
-            ->mapWithKeys(fn($emp) => [$emp->id => "{$emp->fullname} — {$emp->designation}"]);
+            ->mapWithKeys(fn ($emp) => [$emp->id => "{$emp->fullname} — {$emp->designation}"]);
     }
 
     /**
      * Returns mapped options of valid approvers.
      */
-    public static function getValidApproversOptions(float $totalCost): \Illuminate\Support\Collection
+    public static function getValidApproversOptions(float $totalCost): Collection
     {
         $ids = self::getValidApproverIds($totalCost);
         if (empty($ids)) {
             return collect();
         }
-        return \App\Models\Employee::whereIn('id', $ids)
+
+        return Employee::whereIn('id', $ids)
             ->orderBy('fullname')
             ->get()
-            ->mapWithKeys(fn($emp) => [$emp->id => "{$emp->fullname} — {$emp->designation}"]);
+            ->mapWithKeys(fn ($emp) => [$emp->id => "{$emp->fullname} — {$emp->designation}"]);
     }
 
     /**

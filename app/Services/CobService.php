@@ -3,8 +3,8 @@
 namespace App\Services;
 
 use App\Models\BudgetYear;
-use App\Models\CobVersion;
 use App\Models\CobItem;
+use App\Models\CobVersion;
 
 class CobService
 {
@@ -14,8 +14,8 @@ class CobService
     public function createBudgetYear(string $year): BudgetYear
     {
         return BudgetYear::create([
-            'fiscal_year'      => (int) $year,
-            'status'           => 'OPEN',
+            'fiscal_year' => (int) $year,
+            'status' => 'OPEN',
             'total_allocation' => 0,
         ]);
     }
@@ -36,9 +36,9 @@ class CobService
     {
         return CobVersion::create([
             'budget_year_id' => $yearId,
-            'version_name'   => $versionName,
-            'is_active'      => false,
-            'created_by'     => $userId,
+            'version_name' => $versionName,
+            'is_active' => false,
+            'created_by' => $userId,
         ]);
     }
 
@@ -53,11 +53,11 @@ class CobService
         $activeVersions = CobVersion::where('budget_year_id', $version->budget_year_id)
             ->where('is_active', true)
             ->get();
-            
+
         foreach ($activeVersions as $activeVer) {
             // Mark old version as superseded
             $activeVer->update(['is_active' => false, 'status' => 'SUPERSEDED']);
-            
+
             // Mark items as superseded
             CobItem::where('version_id', $activeVer->id)
                 ->update(['is_active' => false, 'status' => 'SUPERSEDED']);
@@ -72,13 +72,13 @@ class CobService
                 // Compound Fingerprint Matching
                 $match = CobItem::where('version_id', $version->id)
                     ->whereNotIn('id', $matchedNewItemIds)
-                    ->where(function($q) use ($oldItem) {
+                    ->where(function ($q) use ($oldItem) {
                         if (!empty($oldItem->transaction_id)) {
                             $q->where('transaction_id', $oldItem->transaction_id);
                         }
                         $q->where('ppa_code', $oldItem->ppa_code)
-                          ->where('ppa_desc', $oldItem->ppa_desc)
-                          ->where('full_particulars', $oldItem->full_particulars);
+                            ->where('ppa_desc', $oldItem->ppa_desc)
+                            ->where('full_particulars', $oldItem->full_particulars);
                     })
                     ->first();
 
@@ -112,7 +112,7 @@ class CobService
             'is_active' => true,
             'status' => 'APPROVED',
         ]);
-        
+
         CobItem::where('version_id', $version->id)
             ->update(['is_active' => true, 'status' => 'APPROVED']);
     }
@@ -123,7 +123,7 @@ class CobService
     public function createRevision(string $versionId, string $remarks, int $userId): string
     {
         $oldVersion = CobVersion::with('cobItems')->findOrFail($versionId);
-        
+
         if ($oldVersion->status !== 'APPROVED') {
             throw new \RuntimeException('Only APPROVED versions can be revised.');
         }
@@ -131,16 +131,16 @@ class CobService
         $revisionCount = CobVersion::where('budget_year_id', $oldVersion->budget_year_id)
             ->where('version_name', 'like', $oldVersion->version_name . ' - Revision %')
             ->count() + 1;
-            
+
         $newName = $oldVersion->version_name . (str_contains($oldVersion->version_name, ' - Revision') ? '' : " - Revision {$revisionCount}");
 
         $newVersion = CobVersion::create([
             'budget_year_id' => $oldVersion->budget_year_id,
-            'version_name'   => $newName,
-            'is_active'      => false,
-            'status'         => 'DRAFT',
-            'remarks'        => $remarks,
-            'created_by'     => $userId,
+            'version_name' => $newName,
+            'is_active' => false,
+            'status' => 'DRAFT',
+            'remarks' => $remarks,
+            'created_by' => $userId,
         ]);
 
         foreach ($oldVersion->cobItems as $oldItem) {
@@ -173,7 +173,7 @@ class CobService
                 'is_active' => false,
                 'status' => 'DRAFT',
             ]);
-            
+
             $oldItem->update(['superseded_by_id' => $newItem->id]);
         }
 
@@ -186,7 +186,7 @@ class CobService
     public function deleteVersion(string $versionId): void
     {
         $version = CobVersion::findOrFail($versionId);
-        
+
         if ($version->is_active) {
             throw new \RuntimeException('Cannot delete an active COB version. Deactivate it first.');
         }
