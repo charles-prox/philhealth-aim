@@ -4,7 +4,8 @@
     "type": "module",
     "scripts": {
         "build": "vite build",
-        "dev": "vite"
+        "dev": "vite",
+        "shipit": "node scripts/verify-and-push.cjs"
     },
     "devDependencies": {
         "@tailwindcss/forms": "^0.5.2",
