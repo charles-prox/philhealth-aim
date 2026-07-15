@@ -102,4 +102,51 @@ class SignatoryService
 
         return array_filter(array_unique($ids));
     }
+
+    /**
+     * Set active holder for a signatory slot.
+     */
+    public function updateActiveHolder(int $registryId, string $holder): void
+    {
+        $allowed = ['PRIMARY', 'OIC_1', 'OIC_2'];
+        if (!in_array($holder, $allowed)) {
+            throw new \InvalidArgumentException('Invalid holder value.');
+        }
+
+        $row = SignatoryRegistry::findOrFail($registryId);
+
+        // Guard: don't allow switching to OIC_1/OIC_2 if that slot has no employee
+        if ($holder === 'OIC_1' && !$row->oic_primary_employee_id) {
+            throw new \RuntimeException("Cannot activate OIC 1: No employee is assigned to that slot for \"{$row->position_title}\". Edit the row to assign an OIC first.");
+        }
+        if ($holder === 'OIC_2' && !$row->oic_secondary_employee_id) {
+            throw new \RuntimeException("Cannot activate OIC 2: No employee is assigned to that slot for \"{$row->position_title}\". Edit the row to assign an OIC first.");
+        }
+
+        $row->update(['active_holder' => $holder]);
+    }
+
+    /**
+     * Update slot configuration details.
+     */
+    public function saveSlot(int $registryId, array $data): void
+    {
+        $row = SignatoryRegistry::findOrFail($registryId);
+
+        // Guard: prevent activating OIC slots if their employee is not assigned
+        if ($data['active_holder'] === 'OIC_1' && !$data['oic_primary_employee_id']) {
+            throw new \RuntimeException('Cannot set active holder to OIC 1 without assigning an OIC 1 employee.');
+        }
+        if ($data['active_holder'] === 'OIC_2' && !$data['oic_secondary_employee_id']) {
+            throw new \RuntimeException('Cannot set active holder to OIC 2 without assigning an OIC 2 employee.');
+        }
+
+        $row->update([
+            'position_title' => $data['position_title'],
+            'primary_employee_id' => $data['primary_employee_id'],
+            'oic_primary_employee_id' => $data['oic_primary_employee_id'] ?: null,
+            'oic_secondary_employee_id' => $data['oic_secondary_employee_id'] ?: null,
+            'active_holder' => $data['active_holder'],
+        ]);
+    }
 }
