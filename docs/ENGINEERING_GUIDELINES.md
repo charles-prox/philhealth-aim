@@ -15,3 +15,13 @@ To keep our application secure, lightweight, and maintainable, all developers mu
 ## 3. Form Objects (Form State & Validation Isolation)
 *   Do not clutter the top of Livewire components with dozens of flat public variables.
 *   *Implementation:* Create a dedicated Form Object via `php artisan make:form [FormName]`. Enclose properties and validation rule matrices inside the form class.
+
+## ⚖️ Core Architectural Laws for Livewire & Volt Components
+
+To prevent files from ballooning beyond our 500-line warning threshold, all new components must adhere to the following logic boundaries:
+
+1.  **Component Class Limit:** Keep controllers under 300 lines of pure PHP. If you exceed this, you are likely writing business logic that belongs elsewhere.
+2.  **No Raw Joins in Controllers:** Direct SQL joins, unions, or complex Eloquent builders belong in Eloquent Model **Query Scopes**.
+3.  **No Financial/Routing Rule Checks in Components:** Signatory routing, cost thresholds, and approval matrices must live in model scopes or specialized service classes.
+4.  **No Manual Mapping Loops:** Form properties and model database columns must be hydrated using Form Object `fill()` or custom hydrator methods.
+
