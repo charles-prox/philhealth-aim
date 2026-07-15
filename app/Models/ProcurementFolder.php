@@ -387,4 +387,25 @@ class ProcurementFolder extends Model
             $this->update(['pdf_attachment_path' => null]);
         });
     }
+
+    public function scopeRecentHistoryForAppLine($query, $appLineItemId, $officeId)
+    {
+        return $query->join('pr_items', 'procurement_folders.id', '=', 'pr_items.folder_id')
+            ->leftJoin('app_line_items', 'pr_items.app_line_item_id', '=', 'app_line_items.id')
+            ->where('pr_items.app_line_item_id', $appLineItemId)
+            ->where('procurement_folders.office_id', $officeId)
+            ->whereNotIn('procurement_folders.status', ['CANCELLED', 'CANCELLED_BY_USER'])
+            ->select(
+                'procurement_folders.id as folder_id',
+                'procurement_folders.tracking_number',
+                'procurement_folders.pr_number',
+                'procurement_folders.status',
+                'procurement_folders.overall_purpose',
+                \Illuminate\Support\Facades\DB::raw("COALESCE(pr_items.item_description_override, app_line_items.description, 'Unknown Item') as item_desc"),
+                'pr_items.total_qty as quantity',
+                \Illuminate\Support\Facades\DB::raw('COALESCE(pr_items.estimated_unit_cost, pr_items.unit_cost, 0) as unit_price'),
+                'procurement_folders.created_at'
+            )
+            ->latest('procurement_folders.created_at');
+    }
 }

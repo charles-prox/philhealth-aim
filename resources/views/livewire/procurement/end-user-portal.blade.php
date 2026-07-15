@@ -533,54 +533,12 @@ new class extends Component
         return $this->selectedAppLineId ? AppLineItem::find($this->selectedAppLineId) : null;
     }
 
-    /**
-     * Recommender pool: GSU Head + the Division Chief for the requesting user's office.
-     * Returns an ordered id => "Name — Designation" map for the x-form-select component.
-     *
-     * Pulls ALL employees assigned to those slots (primary + both OICs) so the user
-     * can always select the specific individual physically handling recommending duties,
-     * regardless of which OIC position is currently set as active_holder.
-     */
-    private function getSectionHeadForUser(): ?int
-    {
-        $userOffice = auth()->user()->office;
-        if (!$userOffice) {
-            return null;
-        }
-
-        // Exempt Planning (PRU) and Public affairs (PAU) units, mapping them to their own UNIT_HEAD
-        if (in_array($userOffice->acronym, ['PAU', 'PRU'])) {
-            return \App\Models\SignatoryRegistry::getActiveSignatoryFor('UNIT_HEAD', $userOffice->id);
-        }
-
-        $section = $userOffice->section;
-        if ($section) {
-            return \App\Models\SignatoryRegistry::getActiveSignatoryFor('SECTION_HEAD', $section->id);
-        }
-
-        return null;
-    }
-
     public function autoSelectSignatories(): void
     {
         $totalCost = $this->totalBasketValue();
 
-        // 1. Recommender
-        if ($totalCost >= 200000.00) {
-            $this->form->recommendedById = $this->getSectionHeadForUser();
-        } else {
-            $gsuOffice = \App\Models\Office::where('acronym', 'GSU')->first();
-            if ($gsuOffice) {
-                $this->form->recommendedById = \App\Models\SignatoryRegistry::getActiveSignatoryFor('UNIT_HEAD', $gsuOffice->id);
-            }
-        }
-
-        // 2. Approver
-        if ($totalCost >= 200000.00) {
-            $this->form->approvedById = \App\Models\SignatoryRegistry::getActiveSignatoryFor('RVP');
-        } else {
-            $this->form->approvedById = \App\Models\SignatoryRegistry::getActiveSignatoryFor('MSD_HEAD');
-        }
+        $this->form->recommendedById = \App\Services\SignatoryService::getRecommendedSignatory($totalCost, auth()->user()->office);
+        $this->form->approvedById = \App\Services\SignatoryService::getApprovedSignatory($totalCost);
     }
 
     /**
@@ -590,25 +548,7 @@ new class extends Component
     #[Computed]
     public function validRecommenders(): \Illuminate\Support\Collection
     {
-        $totalCost = $this->totalBasketValue();
-        $recommenderIds = [];
-
-        if ($totalCost >= 200000.00) {
-            $sectionHeadId = $this->getSectionHeadForUser();
-            if ($sectionHeadId) {
-                $recommenderIds[] = $sectionHeadId;
-            }
-        } else {
-            $gsuOffice = \App\Models\Office::where('acronym', 'GSU')->first();
-            if ($gsuOffice) {
-                $gsuSigner = \App\Models\SignatoryRegistry::getActiveSignatoryFor('UNIT_HEAD', $gsuOffice->id);
-                if ($gsuSigner) {
-                    $recommenderIds[] = $gsuSigner;
-                }
-            }
-        }
-
-        $recommenderIds = array_filter(array_unique($recommenderIds));
+        $recommenderIds = \App\Services\SignatoryService::getValidRecommenderIds($this->totalBasketValue(), auth()->user()->office);
 
         if (empty($recommenderIds)) {
             return collect();
@@ -627,22 +567,7 @@ new class extends Component
     #[Computed]
     public function validApprovers(): \Illuminate\Support\Collection
     {
-        $totalCost = $this->totalBasketValue();
-        $approverIds = [];
-
-        if ($totalCost >= 200000.00) {
-            $rvpSigner = \App\Models\SignatoryRegistry::getActiveSignatoryFor('RVP');
-            if ($rvpSigner) {
-                $approverIds[] = $rvpSigner;
-            }
-        } else {
-            $msdSigner = \App\Models\SignatoryRegistry::getActiveSignatoryFor('MSD_HEAD');
-            if ($msdSigner) {
-                $approverIds[] = $msdSigner;
-            }
-        }
-
-        $approverIds = array_filter(array_unique($approverIds));
+        $approverIds = \App\Services\SignatoryService::getValidApproverIds($this->totalBasketValue());
 
         if (empty($approverIds)) {
             return collect();
@@ -657,29 +582,13 @@ new class extends Component
     #[Computed]
     public function recentItemHistory(): \Illuminate\Support\Collection
     {
-        if (!$this->selectedAppLineId) return collect();
+        if (!$this->selectedAppLineId) {
+            return collect();
+        }
 
-        $items = DB::table('procurement_folders')
-            ->join('pr_items', 'procurement_folders.id', '=', 'pr_items.folder_id')
-            ->leftJoin('app_line_items', 'pr_items.app_line_item_id', '=', 'app_line_items.id')
-            ->where('pr_items.app_line_item_id', $this->selectedAppLineId)
-            ->where('procurement_folders.office_id', auth()->user()->office_id)
-            ->whereNotIn('procurement_folders.status', ['CANCELLED', 'CANCELLED_BY_USER'])
-            ->select(
-                'procurement_folders.id as folder_id',
-                'procurement_folders.tracking_number',
-                'procurement_folders.pr_number',
-                'procurement_folders.status',
-                'procurement_folders.overall_purpose',
-                \Illuminate\Support\Facades\DB::raw("COALESCE(pr_items.item_description_override, app_line_items.description, 'Unknown Item') as item_desc"),
-                'pr_items.total_qty as quantity',
-                \Illuminate\Support\Facades\DB::raw('COALESCE(pr_items.estimated_unit_cost, pr_items.unit_cost, 0) as unit_price'),
-                'procurement_folders.created_at'
-            )
-            ->latest('procurement_folders.created_at')
-            ->get();
-
-        return $items->groupBy('tracking_number');
+        return ProcurementFolder::recentHistoryForAppLine($this->selectedAppLineId, auth()->user()->office_id)
+            ->get()
+            ->groupBy('tracking_number');
     }
 
     #[Computed]
