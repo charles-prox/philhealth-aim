@@ -195,6 +195,7 @@
                             placeholder="Select Category..." 
                             icon="category" 
                             required
+                            searchable
                             wire:model="form.procurementCategory" 
                             :options="$this->categories" 
                             :disabled="$inputsDisabled" 
