@@ -160,6 +160,13 @@
                                 @endforelse
                             </div>
 
+                            @error('basket')
+                                <div class="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl font-bold flex items-center gap-1.5 shadow-2xs">
+                                    <span class="material-symbols-outlined text-[16px] text-red-600">error</span>
+                                    {{ $message }}
+                                </div>
+                            @enderror
+
                             @if(!$inputsDisabled)
                                 <div class="flex justify-start border-t border-[#eeedf2] pt-3">
                                     <button type="button" wire:click="addItemRowToAppLine({{ $selectedAppLineId }})" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#f9f9fe] hover:bg-[#eeedf2] text-[#001e40] border border-[#c3c6d1] hover:border-[#001e40] text-[11px] font-bold rounded-lg shadow-2xs transition-all">
