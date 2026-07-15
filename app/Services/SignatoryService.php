@@ -104,6 +104,36 @@ class SignatoryService
     }
 
     /**
+     * Returns mapped options of valid recommenders.
+     */
+    public static function getValidRecommendersOptions(float $totalCost, ?Office $office): \Illuminate\Support\Collection
+    {
+        $ids = self::getValidRecommenderIds($totalCost, $office);
+        if (empty($ids)) {
+            return collect();
+        }
+        return \App\Models\Employee::whereIn('id', $ids)
+            ->orderBy('fullname')
+            ->get()
+            ->mapWithKeys(fn($emp) => [$emp->id => "{$emp->fullname} — {$emp->designation}"]);
+    }
+
+    /**
+     * Returns mapped options of valid approvers.
+     */
+    public static function getValidApproversOptions(float $totalCost): \Illuminate\Support\Collection
+    {
+        $ids = self::getValidApproverIds($totalCost);
+        if (empty($ids)) {
+            return collect();
+        }
+        return \App\Models\Employee::whereIn('id', $ids)
+            ->orderBy('fullname')
+            ->get()
+            ->mapWithKeys(fn($emp) => [$emp->id => "{$emp->fullname} — {$emp->designation}"]);
+    }
+
+    /**
      * Set active holder for a signatory slot.
      */
     public function updateActiveHolder(int $registryId, string $holder): void

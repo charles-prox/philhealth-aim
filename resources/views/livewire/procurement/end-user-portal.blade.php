@@ -2,7 +2,6 @@
 
 use App\Models\AppHeader;
 use App\Models\AppLineItem;
-use App\Models\Employee;
 use App\Models\PrItem;
 use App\Models\ProcurementFolder;
 use Illuminate\Support\Facades\DB;
@@ -266,7 +265,7 @@ new class extends Component
         }
     }
 
-    public function nextStep(): void
+    public function nextStep(\App\Services\ProcurementService $service): void
     {
         if ($this->currentStep === 1) {
             if (!$this->selectedAppLineId) {
@@ -287,66 +286,14 @@ new class extends Component
                 return;
             }
 
-            // Validate Basket items (Qty, Unit Cost, Budget Availability)
-            $hasError = false;
-            foreach ($this->basket as $basketKey => $itemData) {
-                $qty = (int) ($itemData['qty'] ?? 0);
-                $unitCost = (float) ($itemData['unit_cost'] ?? 0.0);
-                $desc = $itemData['description'] ?? '';
-                $unit = $itemData['unit'] ?? '';
+            // Delegate basket validation to ProcurementService
+            $basketErrors = $service->validateBasket($this->basket, $this->folderId);
 
-                if (empty($desc)) {
-                    $this->addError("basket.{$basketKey}.description", "Particulars/description is required.");
-                    $hasError = true;
-                }
-
-                if (empty($unit)) {
-                    $this->addError("basket.{$basketKey}.unit", "Unit is required.");
-                    $hasError = true;
-                }
-
-                if ($qty <= 0) {
-                    $this->addError("basket.{$basketKey}.qty", "Quantity must be at least 1.");
-                    $hasError = true;
-                }
-
-                if ($unitCost < 0.0) {
-                    $this->addError("basket.{$basketKey}.unit_cost", "Estimated unit cost cannot be negative.");
-                    $hasError = true;
-                }
+            foreach ($basketErrors as $field => $message) {
+                $this->addError("basket.{$field}", $message);
             }
 
-            // Sum up total cost grouped by app_line_item_id to validate budget availability
-            $totalsByAppLine = collect($this->basket)
-                ->groupBy('app_line_item_id')
-                ->map(fn($items) => $items->sum(fn($i) => (int)$i['qty'] * (float)$i['unit_cost']));
-
-            foreach ($totalsByAppLine as $appLineItemId => $totalCost) {
-                $appLineItem = AppLineItem::find($appLineItemId);
-                if ($appLineItem) {
-                    $availableBudget = $appLineItem->approved_budget - $appLineItem->utilized_budget;
-                    $alreadyUtilized = 0;
-                    if ($this->folderId) {
-                        $existingCost = PrItem::where('folder_id', $this->folderId)
-                            ->where('app_line_item_id', $appLineItemId)
-                            ->sum('estimated_total_cost');
-                        $alreadyUtilized = $existingCost;
-                    }
-                    $availableBudget += $alreadyUtilized;
-
-                    if ($totalCost > $availableBudget) {
-                        $firstBasketKey = collect($this->basket)
-                            ->where('app_line_item_id', $appLineItemId)
-                            ->keys()
-                            ->first();
-
-                        $this->addError("basket.{$firstBasketKey}.unit_cost", "Combined items cost (₱" . number_format($totalCost, 2) . ") under " . $appLineItem->project_title . " exceeds available budget of ₱" . number_format($availableBudget, 2) . ".");
-                        $hasError = true;
-                    }
-                }
-            }
-
-            if ($hasError) {
+            if (!empty($basketErrors)) {
                 return;
             }
 
@@ -394,66 +341,12 @@ new class extends Component
             return;
         }
 
-        // Validate Basket items (Qty, Unit Cost, Budget Availability)
-        $hasError = false;
-        foreach ($this->basket as $basketKey => $itemData) {
-            $qty = (int) ($itemData['qty'] ?? 0);
-            $unitCost = (float) ($itemData['unit_cost'] ?? 0.0);
-            $desc = $itemData['description'] ?? '';
-            $unit = $itemData['unit'] ?? '';
-
-            if (empty($desc)) {
-                $this->addError("basket.{$basketKey}.description", "Particulars/description is required.");
-                $hasError = true;
-            }
-
-            if (empty($unit)) {
-                $this->addError("basket.{$basketKey}.unit", "Unit is required.");
-                $hasError = true;
-            }
-
-            if ($qty <= 0) {
-                $this->addError("basket.{$basketKey}.qty", "Quantity must be at least 1.");
-                $hasError = true;
-            }
-
-            if ($unitCost < 0.0) {
-                $this->addError("basket.{$basketKey}.unit_cost", "Estimated unit cost cannot be negative.");
-                $hasError = true;
-            }
+        // Delegate basket validation to ProcurementService
+        $basketErrors = $service->validateBasket($this->basket, $this->folderId);
+        foreach ($basketErrors as $field => $message) {
+            $this->addError("basket.{$field}", $message);
         }
-
-        // Sum up total cost grouped by app_line_item_id to validate budget availability
-        $totalsByAppLine = collect($this->basket)
-            ->groupBy('app_line_item_id')
-            ->map(fn($items) => $items->sum(fn($i) => (int)$i['qty'] * (float)$i['unit_cost']));
-
-        foreach ($totalsByAppLine as $appLineItemId => $totalCost) {
-            $appLineItem = AppLineItem::find($appLineItemId);
-            if ($appLineItem) {
-                $availableBudget = $appLineItem->approved_budget - $appLineItem->utilized_budget;
-                $alreadyUtilized = 0;
-                if ($this->folderId) {
-                    $existingCost = PrItem::where('folder_id', $this->folderId)
-                        ->where('app_line_item_id', $appLineItemId)
-                        ->sum('estimated_total_cost');
-                    $alreadyUtilized = $existingCost;
-                }
-                $availableBudget += $alreadyUtilized;
-
-                if ($totalCost > $availableBudget) {
-                    $firstBasketKey = collect($this->basket)
-                        ->where('app_line_item_id', $appLineItemId)
-                        ->keys()
-                        ->first();
-
-                    $this->addError("basket.{$firstBasketKey}.unit_cost", "Combined items cost (₱" . number_format($totalCost, 2) . ") under " . $appLineItem->project_title . " exceeds available budget of ₱" . number_format($availableBudget, 2) . ".");
-                    $hasError = true;
-                }
-            }
-        }
-
-        if ($hasError) {
+        if (!empty($basketErrors)) {
             return;
         }
 
@@ -484,23 +377,9 @@ new class extends Component
         }
     }
 
-    public function updatedSearch(): void
-    {
-        $this->resetPage();
-    }
-
-    public function performSearch(): void
-    {
-        $this->search = $this->searchQuery;
-        $this->resetPage();
-    }
-
-    public function clearSearch(): void
-    {
-        $this->searchQuery = '';
-        $this->search = '';
-        $this->resetPage();
-    }
+    public function updatedSearch(): void { $this->resetPage(); }
+    public function performSearch(): void { $this->search = $this->searchQuery; $this->resetPage(); }
+    public function clearSearch(): void { $this->searchQuery = ''; $this->search = ''; $this->resetPage(); }
 
     #[Computed]
     public function appLineItems(): \Illuminate\Contracts\Pagination\LengthAwarePaginator
@@ -548,16 +427,7 @@ new class extends Component
     #[Computed]
     public function validRecommenders(): \Illuminate\Support\Collection
     {
-        $recommenderIds = \App\Services\SignatoryService::getValidRecommenderIds($this->totalBasketValue(), auth()->user()->office);
-
-        if (empty($recommenderIds)) {
-            return collect();
-        }
-
-        return Employee::whereIn('id', $recommenderIds)
-            ->orderBy('fullname')
-            ->get()
-            ->mapWithKeys(fn($emp) => [$emp->id => "{$emp->fullname} — {$emp->designation}"]);
+        return \App\Services\SignatoryService::getValidRecommendersOptions($this->totalBasketValue(), auth()->user()->office);
     }
 
     /**
@@ -567,16 +437,7 @@ new class extends Component
     #[Computed]
     public function validApprovers(): \Illuminate\Support\Collection
     {
-        $approverIds = \App\Services\SignatoryService::getValidApproverIds($this->totalBasketValue());
-
-        if (empty($approverIds)) {
-            return collect();
-        }
-
-        return Employee::whereIn('id', $approverIds)
-            ->orderBy('fullname')
-            ->get()
-            ->mapWithKeys(fn($emp) => [$emp->id => "{$emp->fullname} — {$emp->designation}"]);
+        return \App\Services\SignatoryService::getValidApproversOptions($this->totalBasketValue());
     }
 
     #[Computed]
