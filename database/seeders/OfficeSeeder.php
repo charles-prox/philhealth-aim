@@ -16,18 +16,18 @@ class OfficeSeeder extends Seeder
     {
         // 1. Map legacy acronyms in offices/employees to the new canonical matrix
         $legacyAcronymMap = [
-            'LEGAL'         => 'LO',
+            'LEGAL' => 'LO',
             'LHIO BUKIDNON' => 'LHIO-BUK',
-            'LHIO CDO'      => 'LHIO-CDO',
-            'LHIO GINGOOG'  => 'LHIO-GIN',
-            'LHIO ILIGAN'   => 'LHIO-ILI',
-            'LHIO OZAMIZ'   => 'LHIO-OZA',
-            'PBC CAMIGUIN'  => 'PBC-CAM',
-            'OFOD'          => 'FOD',
-            'OMSD'          => 'MSD',     // Merged proper office into division
-            'OHCDMD'        => 'HCDMD',   // Merged proper office into division
-            'ORVP-O'        => 'ORVP',    // Merged proper office into division
-            'ORVP_DIV'      => 'ORVP',    // Cleaned up duplicate division
+            'LHIO CDO' => 'LHIO-CDO',
+            'LHIO GINGOOG' => 'LHIO-GIN',
+            'LHIO ILIGAN' => 'LHIO-ILI',
+            'LHIO OZAMIZ' => 'LHIO-OZA',
+            'PBC CAMIGUIN' => 'PBC-CAM',
+            'OFOD' => 'FOD',
+            'OMSD' => 'MSD',     // Merged proper office into division
+            'OHCDMD' => 'HCDMD',   // Merged proper office into division
+            'ORVP-O' => 'ORVP',    // Merged proper office into division
+            'ORVP_DIV' => 'ORVP',    // Cleaned up duplicate division
         ];
 
         // Perform clean migration of raw acronym text fields to keep all relations intact
@@ -47,7 +47,7 @@ class OfficeSeeder extends Seeder
             'Office of the Management Services Division',
             'Office of the HCDMD Chief',
             'Office of the Regional Vice President (Proper)',
-            'Office of the Regional Vice President (Division)'
+            'Office of the Regional Vice President (Division)',
         ])->delete();
 
         // Temporarily clear parents to avoid FK cycle conflicts during name updates
@@ -113,15 +113,15 @@ class OfficeSeeder extends Seeder
 
             if ($existing) {
                 $existing->update([
-                    'name'    => $data['name'],
+                    'name' => $data['name'],
                     'acronym' => $data['acronym'],
-                    'type'    => $data['type'],
+                    'type' => $data['type'],
                 ]);
             } else {
                 Office::create([
-                    'name'    => $data['name'],
+                    'name' => $data['name'],
                     'acronym' => $data['acronym'],
-                    'type'    => $data['type'],
+                    'type' => $data['type'],
                 ]);
             }
         }

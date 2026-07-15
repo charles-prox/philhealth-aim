@@ -10,10 +10,10 @@ return new class extends Migration
     {
         Schema::table('cob_item_distributions', function (Blueprint $table) {
             $table->foreignId('sub_employee_id')
-                  ->nullable()
-                  ->after('employee_id')
-                  ->constrained('employees')
-                  ->nullOnDelete();
+                ->nullable()
+                ->after('employee_id')
+                ->constrained('employees')
+                ->nullOnDelete();
         });
     }
 

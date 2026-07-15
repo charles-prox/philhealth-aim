@@ -27,7 +27,7 @@ class InventoryUnit extends Model
         if ($this->stock && $this->stock->unit_cost >= 50000) {
             return 'PAR';
         }
-        
+
         return 'ICS';
     }
 }

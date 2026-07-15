@@ -2,8 +2,8 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
@@ -25,8 +25,8 @@ class PrItem extends Model
     ];
 
     protected $casts = [
-        'unit_cost'            => 'decimal:2',
-        'estimated_unit_cost'  => 'decimal:2',
+        'unit_cost' => 'decimal:2',
+        'estimated_unit_cost' => 'decimal:2',
         'estimated_total_cost' => 'decimal:2',
     ];
 
@@ -52,7 +52,7 @@ class PrItem extends Model
 
             $qty = $model->total_qty ?? 0;
 
-            $model->estimated_unit_cost  = $cost;
+            $model->estimated_unit_cost = $cost;
             $model->estimated_total_cost = $qty * $cost;
 
             // COA / PhilHealth ₱50,000 Threshold Rule

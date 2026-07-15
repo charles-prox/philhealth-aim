@@ -12,11 +12,11 @@ return new class extends Migration
             // Link to the canonical HR profile. Nullable so that
             // a user account can exist before being linked.
             $table->foreignId('employee_id')
-                  ->nullable()
-                  ->unique() // one-to-one: an employee can only map to one user
-                  ->after('name')
-                  ->constrained('employees')
-                  ->nullOnDelete();
+                ->nullable()
+                ->unique() // one-to-one: an employee can only map to one user
+                ->after('name')
+                ->constrained('employees')
+                ->nullOnDelete();
         });
     }
 

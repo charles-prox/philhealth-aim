@@ -13,19 +13,19 @@ return new class extends Migration
 
             // The COB line being allocated — restrict delete to protect audit trail
             $table->foreignUuid('cob_item_id')
-                  ->constrained('cob_items')
-                  ->restrictOnDelete();
+                ->constrained('cob_items')
+                ->restrictOnDelete();
 
             // The receiving office (normalized from employees.office_division)
             $table->foreignId('office_id')
-                  ->constrained('offices')
-                  ->restrictOnDelete();
+                ->constrained('offices')
+                ->restrictOnDelete();
 
             // The end-user employee — nullable for office-pooled/general stock
             $table->foreignId('employee_id')
-                  ->nullable()
-                  ->constrained('employees')
-                  ->nullOnDelete();
+                ->nullable()
+                ->constrained('employees')
+                ->nullOnDelete();
 
             // Quantity tracking
             $table->integer('allocated_quantity');
@@ -33,9 +33,9 @@ return new class extends Migration
 
             // The Lock: NULL = free to edit/realign, non-NULL = locked inside a PR
             $table->foreignUuid('pr_item_id')
-                  ->nullable()
-                  ->constrained('pr_items')
-                  ->nullOnDelete();
+                ->nullable()
+                ->constrained('pr_items')
+                ->nullOnDelete();
 
             $table->timestamps();
             $table->softDeletes();

@@ -51,7 +51,7 @@ class InventoryController extends Controller
             $request->doc_number
         );
 
-        return redirect()->back()->with('success', "Unit issued. Document generated.");
+        return redirect()->back()->with('success', 'Unit issued. Document generated.');
     }
 
     public function return(Request $request, InventoryUnit $unit)

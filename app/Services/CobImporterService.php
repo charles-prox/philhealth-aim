@@ -18,13 +18,13 @@ class CobImporterService
     {
         $version = CobVersion::findOrFail($versionId);
         $totalImported = 0;
-        
+
         // Update status to processing (optional if we had a status field, but currently we just use is_active)
         // For our current schema, it's inactive until activated.
 
         $itemsToInsert = [];
         $chunkSize = 500;
-        
+
         try {
             DB::transaction(function () use ($filePath, $versionId, &$itemsToInsert, $chunkSize, &$totalImported) {
                 // Delete any existing items for this version if re-uploading
@@ -33,24 +33,24 @@ class CobImporterService
                 (new FastExcel)->import($filePath, function ($line) use (&$itemsToInsert, $versionId, $chunkSize, &$totalImported) {
                     // Log first row headers for debugging if totalImported is 0
                     if ($totalImported === 0) {
-                        Log::info("COB Import Headers detected: " . implode(', ', array_keys($line)));
+                        Log::info('COB Import Headers detected: ' . implode(', ', array_keys($line)));
                     }
 
                     // Extract values with fallback for common column naming variations
                     $ppaCode = $this->extractValue($line, ['PPACode', 'PPA Code', 'ppa_code']);
                     $ppaDesc = $this->extractValue($line, ['PPADesc', 'PPA Description', 'ppa_desc']);
-                    
+
                     // Skip empty rows
                     if (empty($ppaCode) && empty($ppaDesc)) {
                         return;
                     }
 
                     $recomAmount = $this->parseAmount($this->extractValue($line, ['RecomAmount', 'Recom Amount', 'Amount']));
-                    
+
                     // Determine if ICT from description or explicit flag
                     $isIctFlag = $this->extractValue($line, ['IsICT', 'Is ICT', 'ICT']);
                     $isIct = false;
-                    if (!empty($isIctFlag) && in_array(strtolower((string)$isIctFlag), ['yes', '1', 'true', 'y'])) {
+                    if (!empty($isIctFlag) && in_array(strtolower((string) $isIctFlag), ['yes', '1', 'true', 'y'])) {
                         $isIct = true;
                     } elseif (Str::contains(strtolower($ppaDesc ?? ''), ['ict', 'computer', 'software', 'hardware', 'information technology'])) {
                         $isIct = true;
@@ -59,7 +59,7 @@ class CobImporterService
                     $itemsToInsert[] = [
                         'id' => (string) Str::uuid(),
                         'version_id' => $versionId,
-                        
+
                         // Financials
                         'recom_amount' => $recomAmount,
                         'encumbered_amount' => 0,
@@ -91,7 +91,7 @@ class CobImporterService
                         'particulars2' => $this->extractValue($line, ['Particular2', 'Particular 2']),
                         'unit' => $this->extractValue($line, ['Unit', 'Unit of Measure']),
                         'recom_qty' => $this->parseAmount($this->extractValue($line, ['RecomQty', 'Recom Qty', 'Quantity'])),
-                        
+
                         'created_at' => now(),
                         'updated_at' => now(),
                     ];
@@ -113,7 +113,7 @@ class CobImporterService
             return $totalImported;
 
         } catch (\Exception $e) {
-            Log::error("COB Import failed: " . $e->getMessage());
+            Log::error('COB Import failed: ' . $e->getMessage());
             throw $e;
         }
     }
@@ -126,7 +126,7 @@ class CobImporterService
         // Normalize row keys for easier lookup (lowercase, trimmed)
         $normalizedRow = [];
         foreach ($row as $key => $value) {
-            $normalizedRow[trim(strtolower((string)$key))] = $value;
+            $normalizedRow[trim(strtolower((string) $key))] = $value;
         }
 
         foreach ($possibleKeys as $key) {
@@ -141,9 +141,12 @@ class CobImporterService
 
     private function parseAmount(?string $val): float
     {
-        if (empty($val)) return 0.0;
+        if (empty($val)) {
+            return 0.0;
+        }
         // Remove commas and PHP currency symbols if any
         $val = preg_replace('/[^\d\.\-]/', '', $val);
+
         return (float) $val;
     }
 }

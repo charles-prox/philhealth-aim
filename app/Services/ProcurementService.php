@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Jobs\GenerateProcurementDocumentsJob;
 use App\Models\AppLineItem;
 use App\Models\Employee;
 use App\Models\PrItem;
@@ -9,7 +10,6 @@ use App\Models\ProcurementFolder;
 use App\Models\ProcurementLog;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
-use App\Jobs\GenerateProcurementDocumentsJob;
 
 class ProcurementService
 {
@@ -28,7 +28,7 @@ class ProcurementService
         $requestedByDesignation = $requestedEmployee?->designation ?? 'Requesting Officer';
 
         $recommendedEmployee = Employee::findOrFail((int) $folderData['recommendedById']);
-        $approvedEmployee    = Employee::findOrFail((int) $folderData['approvedById']);
+        $approvedEmployee = Employee::findOrFail((int) $folderData['approvedById']);
 
         $status = 'DRAFT';
 
@@ -49,41 +49,41 @@ class ProcurementService
                 $folder->prItems()->delete();
 
                 $folder->update([
-                    'tracking_number'              => $folderData['trackingNumber'],
-                    'overall_purpose'              => $folderData['purpose'],
-                    'status'                       => $status,
-                    'requested_signed_at'          => null,
-                    'requesting_unit'              => $requestedEmployee?->office_division,
-                    'requested_by_id'              => $requestedById,
-                    'requested_by_designation'     => $requestedByDesignation,
-                    'recommended_by_id'            => $folderData['recommendedById'],
-                    'recommended_by_designation'   => $recommendedEmployee->designation,
-                    'approved_by_id'               => $folderData['approvedById'],
-                    'approved_by_designation'      => $approvedEmployee->designation,
-                    'office_id'                    => auth()->user()->office_id,
-                    'created_by_id'                => auth()->id(),
-                    'procurement_category'         => $folderData['procurementCategory'],
-                    'event_date'                   => $folderData['isTiedToEvent'] ? $folderData['eventDate'] : null,
+                    'tracking_number' => $folderData['trackingNumber'],
+                    'overall_purpose' => $folderData['purpose'],
+                    'status' => $status,
+                    'requested_signed_at' => null,
+                    'requesting_unit' => $requestedEmployee?->office_division,
+                    'requested_by_id' => $requestedById,
+                    'requested_by_designation' => $requestedByDesignation,
+                    'recommended_by_id' => $folderData['recommendedById'],
+                    'recommended_by_designation' => $recommendedEmployee->designation,
+                    'approved_by_id' => $folderData['approvedById'],
+                    'approved_by_designation' => $approvedEmployee->designation,
+                    'office_id' => auth()->user()->office_id,
+                    'created_by_id' => auth()->id(),
+                    'procurement_category' => $folderData['procurementCategory'],
+                    'event_date' => $folderData['isTiedToEvent'] ? $folderData['eventDate'] : null,
                 ]);
             } else {
                 $folder = ProcurementFolder::create([
-                    'tracking_number'              => $folderData['trackingNumber'],
-                    'project_title'                => 'PR compiled from APP on ' . now()->format('Y-m-d H:i'),
-                    'procurement_method'           => 'Shopping',
-                    'overall_purpose'              => $folderData['purpose'],
-                    'status'                       => $status,
-                    'requested_signed_at'          => null,
-                    'requesting_unit'              => $requestedEmployee?->office_division,
-                    'requested_by_id'              => $requestedById,
-                    'requested_by_designation'     => $requestedByDesignation,
-                    'recommended_by_id'            => $folderData['recommendedById'],
-                    'recommended_by_designation'   => $recommendedEmployee->designation,
-                    'approved_by_id'               => $folderData['approvedById'],
-                    'approved_by_designation'      => $approvedEmployee->designation,
-                    'office_id'                    => auth()->user()->office_id,
-                    'created_by_id'                => auth()->id(),
-                    'procurement_category'         => $folderData['procurementCategory'],
-                    'event_date'                   => $folderData['isTiedToEvent'] ? $folderData['eventDate'] : null,
+                    'tracking_number' => $folderData['trackingNumber'],
+                    'project_title' => 'PR compiled from APP on ' . now()->format('Y-m-d H:i'),
+                    'procurement_method' => 'Shopping',
+                    'overall_purpose' => $folderData['purpose'],
+                    'status' => $status,
+                    'requested_signed_at' => null,
+                    'requesting_unit' => $requestedEmployee?->office_division,
+                    'requested_by_id' => $requestedById,
+                    'requested_by_designation' => $requestedByDesignation,
+                    'recommended_by_id' => $folderData['recommendedById'],
+                    'recommended_by_designation' => $recommendedEmployee->designation,
+                    'approved_by_id' => $folderData['approvedById'],
+                    'approved_by_designation' => $approvedEmployee->designation,
+                    'office_id' => auth()->user()->office_id,
+                    'created_by_id' => auth()->id(),
+                    'procurement_category' => $folderData['procurementCategory'],
+                    'event_date' => $folderData['isTiedToEvent'] ? $folderData['eventDate'] : null,
                 ]);
             }
 
@@ -94,12 +94,12 @@ class ProcurementService
                 Storage::disk('secure_procurement')->makeDirectory("{$folderName}/uploaded");
 
                 foreach ($stagedFiles as $index => $extraFile) {
-                    $fileName = "SUPPORTING_" . ($index + 1) . "_" . time() . "." . $extraFile->getClientOriginalExtension();
-                    
+                    $fileName = 'SUPPORTING_' . ($index + 1) . '_' . time() . '.' . $extraFile->getClientOriginalExtension();
+
                     // Stream the user data straight to the private uploaded directory channel
                     $storedPath = $extraFile->storeAs(
-                        "{$folderName}/uploaded", 
-                        $fileName, 
+                        "{$folderName}/uploaded",
+                        $fileName,
                         'secure_procurement'
                     );
 
@@ -116,21 +116,21 @@ class ProcurementService
                         'original_name' => $customName,
                         'mime_type' => $extraFile->getMimeType(),
                         'file_size' => $extraFile->getSize(),
-                        'uploaded_by_employee_id' => $employeeId
+                        'uploaded_by_employee_id' => $employeeId,
                     ]);
                 }
             }
 
             foreach ($basket as $basketKey => $itemData) {
                 $prItem = PrItem::create([
-                    'folder_id'                 => $folder->id,
-                    'cob_item_id'               => null,
-                    'app_line_item_id'          => $itemData['app_line_item_id'],
+                    'folder_id' => $folder->id,
+                    'cob_item_id' => null,
+                    'app_line_item_id' => $itemData['app_line_item_id'],
                     'item_description_override' => $itemData['description'],
-                    'total_qty'                 => $itemData['qty'],
-                    'unit'                      => $itemData['unit'] ?? 'pcs',
-                    'unit_cost'                 => $itemData['unit_cost'],
-                    'estimated_unit_cost'       => $itemData['unit_cost'],
+                    'total_qty' => $itemData['qty'],
+                    'unit' => $itemData['unit'] ?? 'pcs',
+                    'unit_cost' => $itemData['unit_cost'],
+                    'estimated_unit_cost' => $itemData['unit_cost'],
                 ]);
 
                 $appLineItem = AppLineItem::find($itemData['app_line_item_id']);

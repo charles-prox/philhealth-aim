@@ -2,19 +2,22 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
-return new class extends Migration {
-    public function up(): void {
+return new class extends Migration
+{
+    public function up(): void
+    {
         // Drop existing to ensure a clean slate, using CASCADE for Postgres FKs
-        if (\Illuminate\Support\Facades\DB::getDriverName() === 'pgsql') {
-            \Illuminate\Support\Facades\DB::statement('DROP TABLE IF EXISTS purchase_orders CASCADE');
-            \Illuminate\Support\Facades\DB::statement('DROP TABLE IF EXISTS distribution_plans CASCADE');
-            \Illuminate\Support\Facades\DB::statement('DROP TABLE IF EXISTS quotation_items CASCADE');
-            \Illuminate\Support\Facades\DB::statement('DROP TABLE IF EXISTS quotations CASCADE');
-            \Illuminate\Support\Facades\DB::statement('DROP TABLE IF EXISTS pr_items CASCADE');
-            \Illuminate\Support\Facades\DB::statement('DROP TABLE IF EXISTS procurement_folders CASCADE');
-            \Illuminate\Support\Facades\DB::statement('DROP TABLE IF EXISTS suppliers CASCADE');
+        if (DB::getDriverName() === 'pgsql') {
+            DB::statement('DROP TABLE IF EXISTS purchase_orders CASCADE');
+            DB::statement('DROP TABLE IF EXISTS distribution_plans CASCADE');
+            DB::statement('DROP TABLE IF EXISTS quotation_items CASCADE');
+            DB::statement('DROP TABLE IF EXISTS quotations CASCADE');
+            DB::statement('DROP TABLE IF EXISTS pr_items CASCADE');
+            DB::statement('DROP TABLE IF EXISTS procurement_folders CASCADE');
+            DB::statement('DROP TABLE IF EXISTS suppliers CASCADE');
         } else {
             Schema::dropIfExists('purchase_orders');
             Schema::dropIfExists('distribution_plans');
@@ -44,7 +47,7 @@ return new class extends Migration {
             $table->enum('status', ['DRAFT', 'PR_PRINTED', 'RFQ_SENT', 'AWARDED', 'PO_RELEASED'])->default('DRAFT');
             $table->text('overall_purpose')->nullable();
             $table->string('requesting_unit')->nullable(); // End-user Section/Division
-            
+
             // Google Automation Links
             $table->string('google_form_id')->nullable();
             $table->string('google_sheet_id')->nullable();
@@ -53,7 +56,7 @@ return new class extends Migration {
             $table->date('geps_posting_from')->nullable();
             $table->date('geps_posting_to')->nullable();
             $table->date('submission_due_date')->nullable();
-            
+
             // Historical Signatories (Snapshot logic)
             // Note: Employees uses BigInt, so we use foreignId, not foreignUuid here.
             $table->foreignId('requested_by_id')->nullable()->constrained('employees');
@@ -67,10 +70,10 @@ return new class extends Migration {
         Schema::create('pr_items', function (Blueprint $table) {
             $table->uuid('id')->primary();
             $table->foreignUuid('folder_id')->constrained('procurement_folders')->onDelete('cascade');
-            
+
             // Link to the COB DNA (restrict on delete to prevent breaking audit)
             $table->foreignUuid('cob_item_id')->constrained('cob_items')->restrictOnDelete();
-            
+
             $table->text('item_description_override')->nullable();
             $table->integer('total_qty')->default(0);
             $table->decimal('unit_cost', 15, 2)->default(0); // Used for 50k Threshold Logic
@@ -83,7 +86,7 @@ return new class extends Migration {
             $table->foreignUuid('folder_id')->constrained('procurement_folders')->onDelete('cascade');
             $table->foreignUuid('supplier_id')->constrained('suppliers');
             $table->boolean('is_winning_bid')->default(false);
-            
+
             // Per-Supplier Terms
             $table->string('delivery_period')->nullable();
             $table->string('warranty_terms')->nullable();
@@ -105,10 +108,10 @@ return new class extends Migration {
         Schema::create('distribution_plans', function (Blueprint $table) {
             $table->uuid('id')->primary();
             $table->foreignUuid('folder_id')->constrained('procurement_folders')->onDelete('cascade');
-            
+
             // Employees uses BigInt
-            $table->foreignId('employee_id')->constrained('employees'); 
-            
+            $table->foreignId('employee_id')->constrained('employees');
+
             $table->foreignUuid('pr_item_id')->constrained('pr_items')->onDelete('cascade');
             $table->integer('planned_qty');
             $table->string('serial_no')->nullable(); // For ICS/PAR later
@@ -127,7 +130,8 @@ return new class extends Migration {
         });
     }
 
-    public function down(): void {
+    public function down(): void
+    {
         Schema::dropIfExists('purchase_orders');
         Schema::dropIfExists('distribution_plans');
         Schema::dropIfExists('quotation_items');

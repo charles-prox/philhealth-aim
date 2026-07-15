@@ -224,7 +224,9 @@ CSV;
         $lines = explode("\n", trim($csv));
         foreach ($lines as $line) {
             $data = str_getcsv($line);
-            if (count($data) < 7) continue;
+            if (count($data) < 7) {
+                continue;
+            }
 
             Employee::create([
                 'id_number' => $data[0] ?: null,

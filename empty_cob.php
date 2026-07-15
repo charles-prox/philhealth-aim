@@ -1,9 +1,9 @@
 <?php
 
 use App\Models\BudgetTransaction;
+use App\Models\BudgetYear;
 use App\Models\CobItem;
 use App\Models\CobVersion;
-use App\Models\BudgetYear;
 use Illuminate\Support\Facades\DB;
 
 try {
@@ -17,6 +17,6 @@ try {
     DB::statement("SET session_replication_role = 'origin';");
 
     echo "Successfully emptied COB, Versions, and Budget Years.\n";
-} catch (\Exception $e) {
-    echo "Error: " . $e->getMessage() . "\n";
+} catch (Exception $e) {
+    echo 'Error: ' . $e->getMessage() . "\n";
 }

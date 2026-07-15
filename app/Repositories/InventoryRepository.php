@@ -4,7 +4,6 @@ namespace App\Repositories;
 
 use App\Models\InventoryLedger;
 use App\Models\InventoryUnit;
-use App\Models\InventoryStock;
 
 class InventoryRepository
 {
