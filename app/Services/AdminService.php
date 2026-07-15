@@ -66,11 +66,12 @@ class AdminService
             }
 
             // Split by Tab (excel copy-paste) or Comma
-            $cols = str_contains($line, "\t") ? explode("\t", $line) : explode(",", $line);
+            $cols = str_contains($line, "\t") ? explode("\t", $line) : explode(',', $line);
             $cols = array_map('trim', $cols);
 
             if (count($cols) < 5) {
-                $skipped[] = "Row " . ($index + 1) . ": Invalid column count. Must have at least 5 columns (ID Number, Fullname, Designation, Salary Grade, Office Acronym).";
+                $skipped[] = 'Row ' . ($index + 1) . ': Invalid column count. Must have at least 5 columns (ID Number, Fullname, Designation, Salary Grade, Office Acronym).';
+
                 continue;
             }
 
@@ -93,12 +94,14 @@ class AdminService
             // Verify office
             $office = Office::where('acronym', $officeAcronym)->first();
             if (!$office) {
-                $skipped[] = "Row " . ($index + 1) . ": Office acronym '{$officeAcronym}' does not exist.";
+                $skipped[] = 'Row ' . ($index + 1) . ": Office acronym '{$officeAcronym}' does not exist.";
+
                 continue;
             }
 
             if (empty($idNumber) || empty($fullname) || empty($designation)) {
-                $skipped[] = "Row " . ($index + 1) . ": ID, Name, or Designation cannot be empty.";
+                $skipped[] = 'Row ' . ($index + 1) . ': ID, Name, or Designation cannot be empty.';
+
                 continue;
             }
 
@@ -116,7 +119,7 @@ class AdminService
                 );
                 $inserted++;
             } catch (\Exception $e) {
-                $skipped[] = "Row " . ($index + 1) . ": Error: " . $e->getMessage();
+                $skipped[] = 'Row ' . ($index + 1) . ': Error: ' . $e->getMessage();
             }
         }
 
@@ -134,7 +137,7 @@ class AdminService
         if ($data['employee_id']) {
             // Guard: prevent same employee being linked to two users
             $conflict = User::where('employee_id', $data['employee_id'])
-                ->when($editingUserId, fn($q) => $q->where('id', '!=', $editingUserId))
+                ->when($editingUserId, fn ($q) => $q->where('id', '!=', $editingUserId))
                 ->first();
 
             if ($conflict) {
