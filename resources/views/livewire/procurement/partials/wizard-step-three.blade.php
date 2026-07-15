@@ -59,8 +59,8 @@
         {{-- Signatories --}}
         @if($form->recommendedById && $form->approvedById)
             @php
-                $recEmp  = Employee::find($this->form->recommendedById);
-                $appEmp  = Employee::find($this->form->approvedById);
+                $recEmp  = \App\Models\Employee::find($this->form->recommendedById);
+                $appEmp  = \App\Models\Employee::find($this->form->approvedById);
             @endphp
             @if($recEmp && $appEmp)
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-6 border-t border-[#eeedf2] pt-5 mt-5">
