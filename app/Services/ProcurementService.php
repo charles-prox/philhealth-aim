@@ -66,7 +66,8 @@ class ProcurementService
                     'office_id' => auth()->user()->office_id,
                     'created_by_id' => auth()->id(),
                     'procurement_category' => $folderData['procurementCategory'],
-                    'event_date' => $folderData['isTiedToEvent'] ? $folderData['eventDate'] : null,
+                    'event_start_date' => $folderData['isTiedToEvent'] ? ($folderData['eventDate'] ?? null) : null,
+                    'event_end_date' => $folderData['isTiedToEvent'] ? ($folderData['eventDate'] ?? null) : null,
                 ]);
             } else {
                 $folder = ProcurementFolder::create([
@@ -86,7 +87,8 @@ class ProcurementService
                     'office_id' => auth()->user()->office_id,
                     'created_by_id' => auth()->id(),
                     'procurement_category' => $folderData['procurementCategory'],
-                    'event_date' => $folderData['isTiedToEvent'] ? $folderData['eventDate'] : null,
+                    'event_start_date' => $folderData['isTiedToEvent'] ? ($folderData['eventDate'] ?? null) : null,
+                    'event_end_date' => $folderData['isTiedToEvent'] ? ($folderData['eventDate'] ?? null) : null,
                 ]);
             }
 
