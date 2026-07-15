@@ -1,0 +1,25 @@
+# .github/workflows/release.yml
+name: Create Semantic Release Tag
+
+on:
+  push:
+    branches:
+      - main # Triggers on direct merges to main
+
+jobs:
+  bump-and-tag:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Crucial: Allows GitHub Actions to push tags back to our repository
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Pulls full history and tags for accurate SemVer delta calculation
+
+      - name: Bump Version and Push Tag
+        id: tag_version
+        uses: mathieudutour/github-tag-action@v6.2
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          default_bump: patch # Default bump step if commit tags are omitted
