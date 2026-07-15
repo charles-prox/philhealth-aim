@@ -3,8 +3,6 @@
 namespace App\Notifications;
 
 use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldQueue;
-use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 
 class DocumentReturnedNotification extends Notification
@@ -40,11 +38,11 @@ class DocumentReturnedNotification extends Notification
     {
         return [
             'tracking_number' => $this->data['tracking_number'],
-            'type'            => $this->data['type'],
-            'remarks'         => $this->data['remarks'],
-            'officer_name'    => $this->data['officer_name'],
-            'title'           => 'Document Returned',
-            'message'         => "Your document <strong>(" . $this->data['tracking_number'] . ")</strong> has been returned for <strong>" . str_replace('_', ' ', $this->data['type']) . "</strong> by <strong>" . $this->data['officer_name'] . "</strong>.",
+            'type' => $this->data['type'],
+            'remarks' => $this->data['remarks'],
+            'officer_name' => $this->data['officer_name'],
+            'title' => 'Document Returned',
+            'message' => 'Your document <strong>(' . $this->data['tracking_number'] . ')</strong> has been returned for <strong>' . str_replace('_', ' ', $this->data['type']) . '</strong> by <strong>' . $this->data['officer_name'] . '</strong>.',
         ];
     }
 }

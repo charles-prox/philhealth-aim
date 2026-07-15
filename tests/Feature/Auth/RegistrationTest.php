@@ -2,6 +2,8 @@
 
 namespace Tests\Feature\Auth;
 
+use Database\Seeders\OfficeSeeder;
+use Database\Seeders\RolesAndPermissionsSeeder;
 use Livewire\Volt\Volt;
 
 test('registration screen can be rendered', function () {
@@ -13,8 +15,8 @@ test('registration screen can be rendered', function () {
 });
 
 test('new users can register', function () {
-    $this->seed(\Database\Seeders\RolesAndPermissionsSeeder::class);
-    $this->seed(\Database\Seeders\OfficeSeeder::class);
+    $this->seed(RolesAndPermissionsSeeder::class);
+    $this->seed(OfficeSeeder::class);
 
     $component = Volt::test('pages.auth.register')
         ->set('name', 'Test User')

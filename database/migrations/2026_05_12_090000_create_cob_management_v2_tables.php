@@ -4,8 +4,10 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-return new class extends Migration {
-    public function up(): void {
+return new class extends Migration
+{
+    public function up(): void
+    {
         // Drop existing if exists to ensure clean UUID start
         Schema::dropIfExists('budget_transactions');
         Schema::dropIfExists('cob_items');
@@ -35,7 +37,7 @@ return new class extends Migration {
         Schema::create('cob_items', function (Blueprint $table) {
             $table->uuid('id')->primary();
             $table->foreignUuid('version_id')->constrained('cob_versions')->onDelete('cascade');
-            
+
             // Financials
             $table->decimal('recom_amount', 15, 2)->default(0);
             $table->decimal('encumbered_amount', 15, 2)->default(0);
@@ -63,7 +65,7 @@ return new class extends Migration {
             $table->text('full_particulars')->nullable();
             $table->string('unit')->nullable();
             $table->decimal('recom_qty', 15, 2)->nullable();
-            
+
             $table->timestamps();
         });
 
@@ -80,7 +82,8 @@ return new class extends Migration {
         });
     }
 
-    public function down(): void {
+    public function down(): void
+    {
         Schema::dropIfExists('budget_transactions');
         Schema::dropIfExists('cob_items');
         Schema::dropIfExists('cob_versions');

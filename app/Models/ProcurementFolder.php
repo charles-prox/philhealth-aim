@@ -2,8 +2,10 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Model;
+use App\Jobs\GenerateProcurementDocumentsJob;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Storage;
 
 class ProcurementFolder extends Model
 {
@@ -16,14 +18,14 @@ class ProcurementFolder extends Model
                 if (empty($folder->recommended_signed_at)) {
                     $folder->current_signatory_id = $folder->recommended_by_id;
                 } elseif (empty($folder->budget_signed_at)) {
-                    $folder->current_signatory_id = \App\Models\SignatoryRegistry::getActiveSignatoryFor('BUDGET_OFFICER');
+                    $folder->current_signatory_id = SignatoryRegistry::getActiveSignatoryFor('BUDGET_OFFICER');
                 } elseif (empty($folder->approved_signed_at)) {
                     $folder->current_signatory_id = $folder->approved_by_id;
                 } else {
                     $folder->current_signatory_id = null;
                 }
             } elseif ($folder->status === 'DRAFT') {
-                $creator = \App\Models\User::find($folder->created_by_id ?? auth()->id());
+                $creator = User::find($folder->created_by_id ?? auth()->id());
                 $folder->current_signatory_id = $creator?->employee_id ?? $folder->current_signatory_id;
             } else {
                 $folder->current_signatory_id = null;
@@ -32,12 +34,12 @@ class ProcurementFolder extends Model
 
         static::updated(function ($folder) {
             if (in_array($folder->status, ['DRAFT', 'CANCELLED', 'CANCELLED_BY_USER'])) {
-                $disk = \Illuminate\Support\Facades\Storage::disk('public');
+                $disk = Storage::disk('public');
                 if ($folder->pdf_attachment_path && $disk->exists($folder->pdf_attachment_path)) {
                     $disk->delete($folder->pdf_attachment_path);
                     $folder->quietly()->update(['pdf_attachment_path' => null]);
                 }
-                
+
                 $identifier = $folder->pr_number ?: $folder->tracking_number;
                 if ($identifier) {
                     $dynamicPath = "pr/{$identifier}.pdf";
@@ -52,7 +54,7 @@ class ProcurementFolder extends Model
             if ($folder->status === 'ROUTING') {
                 $targetId = $folder->current_signatory_id;
                 if ($targetId) {
-                    $pendingTask = \App\Models\ApprovalTask::where([
+                    $pendingTask = ApprovalTask::where([
                         'document_type' => get_class($folder),
                         'document_id' => $folder->id,
                         'status' => 'PENDING',
@@ -61,37 +63,37 @@ class ProcurementFolder extends Model
                     if ($pendingTask) {
                         if ($pendingTask->target_employee_id !== $targetId) {
                             $pendingTask->update(['status' => 'BYPASSED']);
-                            
-                            \App\Models\ApprovalTask::create([
+
+                            ApprovalTask::create([
                                 'target_employee_id' => $targetId,
-                                'document_type'      => get_class($folder),
-                                'document_id'        => $folder->id,
-                                'tracking_number'    => $folder->pr_number ?: $folder->tracking_number,
-                                'document_label'     => 'Purchase Request',
+                                'document_type' => get_class($folder),
+                                'document_id' => $folder->id,
+                                'tracking_number' => $folder->pr_number ?: $folder->tracking_number,
+                                'document_label' => 'Purchase Request',
                                 'originating_office' => $folder->requesting_unit ?? 'Unknown',
-                                'status'             => 'PENDING',
+                                'status' => 'PENDING',
                             ]);
                         }
                     } else {
-                        \App\Models\ApprovalTask::create([
+                        ApprovalTask::create([
                             'target_employee_id' => $targetId,
-                            'document_type'      => get_class($folder),
-                            'document_id'        => $folder->id,
-                            'tracking_number'    => $folder->pr_number ?: $folder->tracking_number,
-                            'document_label'     => 'Purchase Request',
+                            'document_type' => get_class($folder),
+                            'document_id' => $folder->id,
+                            'tracking_number' => $folder->pr_number ?: $folder->tracking_number,
+                            'document_label' => 'Purchase Request',
                             'originating_office' => $folder->requesting_unit ?? 'Unknown',
-                            'status'             => 'PENDING',
+                            'status' => 'PENDING',
                         ]);
                     }
                 }
             } else {
                 $taskStatus = $folder->status === 'APPROVED' ? 'SIGNED' : 'REJECTED';
-                
+
                 if (in_array($folder->status, ['DRAFT', 'CANCELLED', 'CANCELLED_BY_USER', 'RETURNED_FOR_EDIT', 'RETURNED_FOR_COMPLIANCE'])) {
                     $taskStatus = 'REJECTED';
                 }
 
-                \App\Models\ApprovalTask::where([
+                ApprovalTask::where([
                     'document_type' => get_class($folder),
                     'document_id' => $folder->id,
                     'status' => 'PENDING',
@@ -101,7 +103,7 @@ class ProcurementFolder extends Model
 
         static::created(function ($folder) {
             \Illuminate\Support\Facades\DB::afterCommit(function () use ($folder) {
-                \App\Jobs\GenerateProcurementDocumentsJob::dispatchSync($folder);
+                GenerateProcurementDocumentsJob::dispatchSync($folder);
             });
         });
     }
@@ -224,28 +226,31 @@ class ProcurementFolder extends Model
         if ($this->status === 'ROUTING') {
             if (empty($this->budget_signed_at)) {
                 $name = $this->currentSignatory?->fullname ?? 'Budget Officer';
+
                 return "Pending Budget Check — {$name}";
             } elseif (empty($this->recommended_signed_at)) {
                 $name = $this->currentSignatory?->fullname ?? 'Recommender';
+
                 return "Pending Recommendation — {$name}";
             } else {
                 $name = $this->currentSignatory?->fullname ?? 'Approver';
+
                 return "Pending Approval — {$name}";
             }
         }
 
         $statuses = [
-            'DRAFT'                    => 'Draft',
-            'SUBMITTED_TO_GSU'         => 'Pending GSU Evaluation',
-            'RETURNED_FOR_EDIT'        => 'Returned for Edit',
-            'RETURNED_FOR_COMPLIANCE'  => 'Returned for Compliance',
-            'APPROVED'                 => 'Approved & Signed',
-            'RFQ'                      => 'RFQ Generation',
-            'RFQ_SENT'                 => 'RFQ Sent',
-            'AWARDED'                  => 'Awarded',
-            'PO_RELEASED'              => 'PO Released',
-            'CANCELLED'                => 'Cancelled',
-            'CANCELLED_BY_USER'        => 'Cancelled by User',
+            'DRAFT' => 'Draft',
+            'SUBMITTED_TO_GSU' => 'Pending GSU Evaluation',
+            'RETURNED_FOR_EDIT' => 'Returned for Edit',
+            'RETURNED_FOR_COMPLIANCE' => 'Returned for Compliance',
+            'APPROVED' => 'Approved & Signed',
+            'RFQ' => 'RFQ Generation',
+            'RFQ_SENT' => 'RFQ Sent',
+            'AWARDED' => 'Awarded',
+            'PO_RELEASED' => 'PO Released',
+            'CANCELLED' => 'Cancelled',
+            'CANCELLED_BY_USER' => 'Cancelled by User',
         ];
 
         return $statuses[$this->status] ?? str_replace('_', ' ', $this->status);
@@ -254,7 +259,7 @@ class ProcurementFolder extends Model
     public function applySignature(int $employeeId): void
     {
         if ($this->current_signatory_id !== $employeeId) {
-            throw new \Exception("Security Exception: You are not the active signatory for this document.");
+            throw new \Exception('Security Exception: You are not the active signatory for this document.');
         }
 
         if (empty($this->recommended_signed_at)) {
@@ -262,7 +267,7 @@ class ProcurementFolder extends Model
                 'recommended_signed_at' => now(),
             ]);
 
-            \App\Models\ProcurementLog::create([
+            ProcurementLog::create([
                 'procurement_folder_id' => $this->id,
                 'action' => 'RECOMMENDED',
                 'actor_id' => $employeeId,
@@ -271,17 +276,17 @@ class ProcurementFolder extends Model
             ]);
 
             // Re-compile core documents to stamp recommendation signature
-            \App\Jobs\GenerateProcurementDocumentsJob::dispatchSync($this);
+            GenerateProcurementDocumentsJob::dispatchSync($this);
         } elseif (empty($this->budget_signed_at)) {
             $this->update([
                 'budget_signed_at' => now(),
                 'budget_signed_by_id' => $employeeId,
             ]);
 
-            $hasABC = $this->prItems->sum(fn($item) => (float) ($item->estimated_unit_cost ?? $item->unit_cost ?? 0.0)) > 0.0;
+            $hasABC = $this->prItems->sum(fn ($item) => (float) ($item->estimated_unit_cost ?? $item->unit_cost ?? 0.0)) > 0.0;
             $signedDocs = $hasABC ? 'Purchase Request (PR) and Approved Budget for the Contract (ABC)' : 'Purchase Request (PR)';
 
-            \App\Models\ProcurementLog::create([
+            ProcurementLog::create([
                 'procurement_folder_id' => $this->id,
                 'action' => 'BUDGET_VERIFIED',
                 'actor_id' => $employeeId,
@@ -290,19 +295,19 @@ class ProcurementFolder extends Model
             ]);
 
             // Re-compile core documents to stamp budget certification signature
-            \App\Jobs\GenerateProcurementDocumentsJob::dispatchSync($this);
+            GenerateProcurementDocumentsJob::dispatchSync($this);
         } elseif (empty($this->approved_signed_at)) {
             $this->update([
                 'status' => 'APPROVED',
                 'approved_signed_at' => now(),
             ]);
 
-            $hasABC = $this->prItems->sum(fn($item) => (float) ($item->estimated_unit_cost ?? $item->unit_cost ?? 0.0)) > 0.0;
-            $rvpSignerId = \App\Models\SignatoryRegistry::getActiveSignatoryFor('RVP');
+            $hasABC = $this->prItems->sum(fn ($item) => (float) ($item->estimated_unit_cost ?? $item->unit_cost ?? 0.0)) > 0.0;
+            $rvpSignerId = SignatoryRegistry::getActiveSignatoryFor('RVP');
             $isRvp = ($employeeId === $rvpSignerId);
             $signedDocs = ($hasABC && $isRvp) ? 'Purchase Request (PR) and Approved Budget for the Contract (ABC)' : 'Purchase Request (PR)';
 
-            \App\Models\ProcurementLog::create([
+            ProcurementLog::create([
                 'procurement_folder_id' => $this->id,
                 'action' => 'APPROVED',
                 'actor_id' => $employeeId,
@@ -311,7 +316,7 @@ class ProcurementFolder extends Model
             ]);
 
             // Re-compile core documents to stamp approval signature
-            \App\Jobs\GenerateProcurementDocumentsJob::dispatchSync($this);
+            GenerateProcurementDocumentsJob::dispatchSync($this);
         }
     }
 
@@ -324,28 +329,29 @@ class ProcurementFolder extends Model
     {
         $year2 = substr(now()->format('y'), -2); // e.g. "26"
         $month2 = now()->format('m'); // e.g. "01"
-        $static = "PR";
-        
+        $static = 'PR';
+
         $likePattern = $year2 . '__' . $static . '-%';
-        
+
         $maxSeq = self::where('pr_number', 'like', $likePattern)
             ->get()
             ->map(function ($folder) {
                 $parts = explode('-', $folder->pr_number);
                 $seq = end($parts);
+
                 return is_numeric($seq) ? (int) $seq : 0;
             })
             ->max() ?? 0;
-            
+
         $nextSeq = $maxSeq + 1;
-        
+
         return $year2 . $month2 . $static . '-' . str_pad($nextSeq, 3, '0', STR_PAD_LEFT);
     }
 
     public function cancelAndPurge(string $statusTarget): void
     {
         if (!in_array($statusTarget, ['CANCELLED', 'CANCELLED_BY_USER'])) {
-            throw new \InvalidArgumentException("Invalid cancellation status state.");
+            throw new \InvalidArgumentException('Invalid cancellation status state.');
         }
 
         \DB::transaction(function () use ($statusTarget) {
@@ -357,19 +363,19 @@ class ProcurementFolder extends Model
                 if ($item->appLineItem) {
                     // Uses your mapped quantity accessor flawlessly
                     $item->appLineItem->decrement(
-                        'utilized_budget', 
+                        'utilized_budget',
                         ($item->quantity * $item->estimated_unit_cost)
                     );
                 }
             }
 
             // 3. STORAGE PURGE: Destroy heavy file from local storage disk
-            $disk = \Illuminate\Support\Facades\Storage::disk('public');
-            
+            $disk = Storage::disk('public');
+
             if ($this->pdf_attachment_path && $disk->exists($this->pdf_attachment_path)) {
                 $disk->delete($this->pdf_attachment_path);
             }
-            
+
             $identifier = $this->pr_number ?: $this->tracking_number;
             if ($identifier) {
                 $dynamicPath = "pr/{$identifier}.pdf";
@@ -380,5 +386,26 @@ class ProcurementFolder extends Model
 
             $this->update(['pdf_attachment_path' => null]);
         });
+    }
+
+    public function scopeRecentHistoryForAppLine($query, $appLineItemId, $officeId)
+    {
+        return $query->join('pr_items', 'procurement_folders.id', '=', 'pr_items.folder_id')
+            ->leftJoin('app_line_items', 'pr_items.app_line_item_id', '=', 'app_line_items.id')
+            ->where('pr_items.app_line_item_id', $appLineItemId)
+            ->where('procurement_folders.office_id', $officeId)
+            ->whereNotIn('procurement_folders.status', ['CANCELLED', 'CANCELLED_BY_USER'])
+            ->select(
+                'procurement_folders.id as folder_id',
+                'procurement_folders.tracking_number',
+                'procurement_folders.pr_number',
+                'procurement_folders.status',
+                'procurement_folders.overall_purpose',
+                \Illuminate\Support\Facades\DB::raw("COALESCE(pr_items.item_description_override, app_line_items.description, 'Unknown Item') as item_desc"),
+                'pr_items.total_qty as quantity',
+                \Illuminate\Support\Facades\DB::raw('COALESCE(pr_items.estimated_unit_cost, pr_items.unit_cost, 0) as unit_price'),
+                'procurement_folders.created_at'
+            )
+            ->latest('procurement_folders.created_at');
     }
 }

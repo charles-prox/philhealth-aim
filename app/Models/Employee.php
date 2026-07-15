@@ -18,13 +18,13 @@ class Employee extends Model
 
     public function user()
     {
-        return $this->hasOne(\App\Models\User::class, 'employee_id');
+        return $this->hasOne(User::class, 'employee_id');
     }
 
     public function isAllowedToSignOrViewDocs(): bool
     {
         // 1. Is this employee a signatory in the SignatoryRegistry?
-        if (\App\Models\SignatoryRegistry::isEmployeeSignatory($this->id)) {
+        if (SignatoryRegistry::isEmployeeSignatory($this->id)) {
             return true;
         }
 
@@ -38,12 +38,12 @@ class Employee extends Model
         }
 
         // 3. Or does the employee own any pending tasks?
-        if (\App\Models\ApprovalTask::where('target_employee_id', $this->id)->exists()) {
+        if (ApprovalTask::where('target_employee_id', $this->id)->exists()) {
             return true;
         }
 
         // 4. Or is the employee a creator of a procurement folder?
-        if (\App\Models\ProcurementFolder::where('created_by_id', $user?->id)->orWhere('requested_by_id', $this->id)->exists()) {
+        if (ProcurementFolder::where('created_by_id', $user?->id)->orWhere('requested_by_id', $this->id)->exists()) {
             return true;
         }
 

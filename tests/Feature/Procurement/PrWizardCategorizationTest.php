@@ -1,10 +1,11 @@
 <?php
 
-use App\Models\Employee;
-use App\Models\AppLineItem;
 use App\Models\AppHeader;
+use App\Models\AppLineItem;
 use App\Models\BudgetYear;
-use App\Models\ProcurementFolder;
+use App\Models\Employee;
+use App\Models\Office;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Volt\Volt;
 
@@ -12,7 +13,7 @@ uses(RefreshDatabase::class);
 
 beforeEach(function () {
     // 0. Seed an Office
-    $office = new \App\Models\Office();
+    $office = new Office;
     $office->id = 1;
     $office->name = 'General Services Unit';
     $office->acronym = 'GSU';
@@ -20,7 +21,7 @@ beforeEach(function () {
     $office->save();
 
     // 1. Seed an Employee for Auth/Signatory check
-    $emp = new Employee();
+    $emp = new Employee;
     $emp->id = 1;
     $emp->fullname = 'SYSTEM USER';
     $emp->designation = 'Staff';
@@ -41,7 +42,7 @@ beforeEach(function () {
     ]);
 
     // 3. Create an APP Line Item to fund the PR
-    $item = new AppLineItem();
+    $item = new AppLineItem;
     $item->id = 1;
     $item->app_header_id = $header->id;
     $item->approved_budget = 100000;
@@ -57,7 +58,7 @@ beforeEach(function () {
     $item->save();
 
     // Authenticate a user
-    $user = \App\Models\User::factory()->create([
+    $user = User::factory()->create([
         'employee_id' => $emp->id,
         'office_id' => 1,
     ]);
@@ -67,31 +68,31 @@ beforeEach(function () {
 it('blocks advancing when category is missing', function () {
     Volt::test('procurement.end-user-portal')
         ->set('currentStep', 2)
-        ->set('procurementCategory', '')
+        ->set('form.procurementCategory', '')
         ->call('nextStep')
-        ->assertHasErrors(['procurementCategory' => 'required'])
+        ->assertHasErrors(['form.procurementCategory' => 'required'])
         ->assertSet('currentStep', 2);
 });
 
 it('blocks advancing when tied to event but date is missing', function () {
     Volt::test('procurement.end-user-portal')
         ->set('currentStep', 2)
-        ->set('procurementCategory', 'OFFICE_SUPPLIES')
-        ->set('isTiedToEvent', true)
-        ->set('eventDate', null)
+        ->set('form.procurementCategory', 'OFFICE_SUPPLIES')
+        ->set('form.isTiedToEvent', true)
+        ->set('form.eventDate', null)
         ->call('nextStep')
-        ->assertHasErrors(['eventDate' => 'required_if'])
+        ->assertHasErrors(['form.eventDate' => 'required_if'])
         ->assertSet('currentStep', 2);
 });
 
 it('blocks advancing when event date is in the past', function () {
     Volt::test('procurement.end-user-portal')
         ->set('currentStep', 2)
-        ->set('procurementCategory', 'OFFICE_SUPPLIES')
-        ->set('isTiedToEvent', true)
-        ->set('eventDate', now()->subDay()->format('Y-m-d'))
+        ->set('form.procurementCategory', 'OFFICE_SUPPLIES')
+        ->set('form.isTiedToEvent', true)
+        ->set('form.eventDate', now()->subDay()->format('Y-m-d'))
         ->call('nextStep')
-        ->assertHasErrors(['eventDate' => 'after_or_equal'])
+        ->assertHasErrors(['form.eventDate' => 'after_or_equal'])
         ->assertSet('currentStep', 2);
 });
 

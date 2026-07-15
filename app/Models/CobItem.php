@@ -44,13 +44,13 @@ class CobItem extends Model
     ];
 
     protected $casts = [
-        'is_ict'            => 'boolean',
-        'recom_amount'      => 'decimal:2',
+        'is_ict' => 'boolean',
+        'recom_amount' => 'decimal:2',
         'encumbered_amount' => 'decimal:2',
-        'actual_spent'      => 'decimal:2',
-        'current_balance'   => 'decimal:2',
-        'recom_qty'         => 'decimal:2',
-        'is_active'         => 'boolean',
+        'actual_spent' => 'decimal:2',
+        'current_balance' => 'decimal:2',
+        'recom_qty' => 'decimal:2',
+        'is_active' => 'boolean',
     ];
 
     public function version(): BelongsTo

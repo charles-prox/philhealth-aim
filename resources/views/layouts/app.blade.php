@@ -204,6 +204,9 @@
                         {{ $slot }}
                     </div>
                 </main>
+
+                <!-- Holy Trinity Modular Layout Integration -->
+                @include('layouts.partials.footer')
         <!-- Search Modal (Pure Alpine - zero Livewire, zero page reload) -->
         <div x-show="searchOpen"
              x-data="{

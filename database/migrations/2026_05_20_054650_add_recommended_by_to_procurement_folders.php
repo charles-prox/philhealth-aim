@@ -17,14 +17,14 @@ return new class extends Migration
         Schema::table('procurement_folders', function (Blueprint $table) {
             // FK to employees (BigInt PK, so foreignId not foreignUuid)
             $table->foreignId('recommended_by_id')
-                  ->nullable()
-                  ->after('approved_by_designation')
-                  ->constrained('employees');
+                ->nullable()
+                ->after('approved_by_designation')
+                ->constrained('employees');
 
             // Snapshot of the designation at the moment of PR generation
             $table->string('recommended_by_designation')
-                  ->nullable()
-                  ->after('recommended_by_id');
+                ->nullable()
+                ->after('recommended_by_id');
         });
     }
 

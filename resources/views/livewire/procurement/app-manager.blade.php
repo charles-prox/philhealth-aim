@@ -29,7 +29,7 @@ new class extends Component
     }
 
     // 1. PHASE 1: Ingest and Parse Data Structure (CSV Only)
-    public function uploadCsv()
+    public function uploadCsv(\App\Services\AppService $service)
     {
         $this->validate([
             'fiscalYear' => 'required|integer|min:2020|max:2050',
@@ -45,74 +45,7 @@ new class extends Component
         }
 
         try {
-            DB::transaction(function () use ($actor) {
-                // Safety Reset Guard: Create or target parent record; explicitly ensure approval status flips to false
-                // Wipe old entries and lock PR creation instantly.
-                $header = AppHeader::updateOrCreate(
-                    ['fiscal_year' => $this->fiscalYear],
-                    [
-                        'is_approved' => false,
-                        'approved_at' => null,
-                        'uploaded_by_id' => $actor?->id,
-                    ]
-                );
-
-                // Wipe previous unapproved/approved items for this year to prevent row stacking
-                AppLineItem::where('app_header_id', $header->id)->delete();
-
-                // Ingest CSV Rows
-                $path = $this->csv_file->getRealPath();
-                if (($handle = fopen($path, 'r')) !== false) {
-                    // Skip header row
-                    fgetcsv($handle, 2000, ',');
-
-                    while (($data = fgetcsv($handle, 2000, ',')) !== false) {
-                        if (count($data) < 10) continue; 
-
-                        // Extract and clean values
-                        $projectTitle = trim($data[0] ?? '');
-                        $implementingUnit = trim($data[1] ?? '');
-                        $description = trim($data[2] ?? '');
-                        $procurementMode = trim($data[3] ?? '');
-                        $epaRaw = strtolower(trim($data[4] ?? ''));
-                        $isEpa = $epaRaw === 'yes' || $epaRaw === '1' || $epaRaw === 'y' || $epaRaw === 'true';
-                        $evaluationCriteria = trim($data[5] ?? '');
-                        $activityStart = trim($data[6] ?? '');
-                        $activityEnd = trim($data[7] ?? '');
-                        $sourceOfFund = trim($data[8] ?? '');
-                        
-                        $approvedBudgetRaw = str_replace([',', '₱', 'Php', 'PHP', ' ', '$'], '', $data[9] ?? '0');
-                        $approvedBudget = (float) $approvedBudgetRaw;
-                        
-                        $strategyTools = trim($data[10] ?? '');
-                        $remarks = trim($data[11] ?? '');
-
-                        AppLineItem::create([
-                            'app_header_id'       => $header->id,
-                            'project_title'       => $projectTitle,
-                            'implementing_unit'   => $implementingUnit,
-                            'description'         => $description,
-                            'procurement_mode'    => $procurementMode,
-                            'is_epa'              => $isEpa,
-                            'evaluation_criteria' => $evaluationCriteria ?: null,
-                            'activity_start'      => $activityStart,
-                            'activity_end'        => $activityEnd,
-                            'source_of_fund'      => $sourceOfFund,
-                            'approved_budget'     => $approvedBudget,
-                            'strategy_tools'      => $strategyTools ?: null,
-                            'remarks'             => $remarks ?: null,
-                            'utilized_budget'     => 0.00,
-                        ]);
-                    }
-                    fclose($handle);
-                }
-
-                // Store CSV file securely outside the public root
-                $csvFilename = "app_{$this->fiscalYear}_" . time() . '.' . $this->csv_file->getClientOriginalExtension();
-                $csvPathDb = $this->csv_file->storeAs('secure/app_csvs', $csvFilename, 'local');
-                
-                $header->update(['csv_file_path' => $csvPathDb]);
-            });
+            $service->ingestCsv($this->fiscalYear, $this->csv_file, $actor);
 
             $this->reset('csv_file');
             $this->successMessage = "CSV layout lines successfully ingested! Please review the row metrics below and attach the signed PDF proof to activate.";
@@ -127,7 +60,7 @@ new class extends Component
     }
 
     // 2. PHASE 2: Attach Legal Verification and Unlock System (PDF Only)
-    public function finalizeWithPdf()
+    public function finalizeWithPdf(\App\Services\AppService $service)
     {
         $this->validate([
             'pdf_file' => 'required|file|mimes:pdf|max:51200', // 50MB Limit
@@ -135,25 +68,8 @@ new class extends Component
             'pdf_file.mimes' => 'The uploaded file must be a valid PDF layout.',
         ]);
 
-        $appHeader = AppHeader::where('fiscal_year', $this->fiscalYear)->first();
-        $lineItemsCount = $appHeader ? $appHeader->lineItems()->count() : 0;
-
-        if (!$appHeader || $lineItemsCount === 0) {
-            $this->errorMessage = "Process Blocked: You must upload and parse the master APP CSV file before uploading the signed PDF scan.";
-            return;
-        }
-
         try {
-            // Securely store the file outside the public web root directory
-            $pdfFilename = "APP_{$this->fiscalYear}_" . time() . ".pdf";
-            $pdfPath = $this->pdf_file->storeAs('secure/app_scans', $pdfFilename, 'local');
-
-            // Hard-lock the approval states
-            $appHeader->update([
-                'scanned_pdf_path' => $pdfPath,
-                'is_approved' => true,
-                'approved_at' => now(),
-            ]);
+            $service->finalizeWithPdf($this->fiscalYear, $this->pdf_file);
 
             $this->reset('pdf_file');
             $this->successMessage = "Annual Procurement Plan officially APPROVED and activated for FY {$this->fiscalYear}!";
@@ -164,31 +80,23 @@ new class extends Component
             $this->dispatch('app-approved'); 
 
         } catch (\Exception $e) {
-            $this->errorMessage = "Failed to finalize APP approval: " . $e->getMessage();
+            $this->errorMessage = $e->getMessage();
             $this->successMessage = null;
         }
     }
 
-    public function revokeApp()
+    public function revokeApp(\App\Services\AppService $service)
     {
-        $header = AppHeader::where('fiscal_year', $this->fiscalYear)->first();
-        if (!$header) return;
+        try {
+            $service->revokeApp($this->fiscalYear);
 
-        // Check if there are PRs using this APP
-        $hasPrs = \App\Models\PrItem::whereIn('app_line_item_id', $header->lineItems()->pluck('id'))->exists();
-        if ($hasPrs) {
-            $this->errorMessage = "Cannot revoke this APP. Some Purchase Requests have already linked to its line items.";
-            return;
+            $this->successMessage = "APP approval revoked. PR compilation for FY {$this->fiscalYear} has been suspended.";
+            $this->errorMessage = null;
+            $this->dispatch('app-status-updated');
+        } catch (\Exception $e) {
+            $this->errorMessage = $e->getMessage();
+            $this->successMessage = null;
         }
-
-        $header->update([
-            'is_approved' => false,
-            'approved_at' => null,
-        ]);
-
-        $this->successMessage = "APP approval revoked. PR compilation for FY {$this->fiscalYear} has been suspended.";
-        $this->errorMessage = null;
-        $this->dispatch('app-status-updated');
     }
 
     public function downloadPdf($id)
@@ -200,32 +108,19 @@ new class extends Component
         $this->errorMessage = "The PDF scanned file could not be found on storage.";
     }
 
-    public function deleteApp()
+    public function deleteApp(\App\Services\AppService $service)
     {
-        $header = AppHeader::where('fiscal_year', $this->fiscalYear)->first();
-        if (!$header) return;
+        try {
+            $service->deleteApp($this->fiscalYear);
 
-        // Check if there are PRs using this APP
-        $hasPrs = \App\Models\PrItem::whereIn('app_line_item_id', $header->lineItems()->pluck('id'))->exists();
-        if ($hasPrs) {
-            $this->errorMessage = "Cannot delete this APP. Some Purchase Requests have already linked to its line items.";
-            return;
+            $this->successMessage = "APP for FY {$this->fiscalYear} has been deleted.";
+            $this->errorMessage = null;
+            $this->showCsvForm = true;
+            $this->dispatch('app-status-updated');
+        } catch (\Exception $e) {
+            $this->errorMessage = $e->getMessage();
+            $this->successMessage = null;
         }
-
-        DB::transaction(function () use ($header) {
-            if ($header->scanned_pdf_path) {
-                \Storage::disk('local')->delete($header->scanned_pdf_path);
-            }
-            if ($header->csv_file_path) {
-                \Storage::disk('local')->delete($header->csv_file_path);
-            }
-            $header->delete();
-        });
-
-        $this->successMessage = "APP for FY {$this->fiscalYear} has been deleted.";
-        $this->errorMessage = null;
-        $this->showCsvForm = true;
-        $this->dispatch('app-status-updated');
     }
 
     public function with(): array

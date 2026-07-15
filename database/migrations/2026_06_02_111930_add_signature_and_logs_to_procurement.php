@@ -13,7 +13,7 @@ return new class extends Migration
             $table->timestamp('requested_signed_at')->nullable()->after('requested_by_designation');
             $table->timestamp('recommended_signed_at')->nullable()->after('recommended_by_designation');
             $table->timestamp('approved_signed_at')->nullable()->after('approved_by_designation');
-            
+
             // Modify status column from enum to string to support more statuses flexibly
             $table->string('status')->default('DRAFT')->change();
         });

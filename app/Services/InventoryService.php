@@ -2,13 +2,13 @@
 
 namespace App\Services;
 
+use App\Models\InventoryLedger;
 use App\Models\InventoryStock;
 use App\Models\InventoryUnit;
-use App\Models\InventoryLedger;
 use App\Models\PropertyAccountability;
 use App\Repositories\InventoryRepository;
-use Illuminate\Support\Facades\DB;
 use Exception;
+use Illuminate\Support\Facades\DB;
 
 class InventoryService
 {
@@ -36,6 +36,7 @@ class InventoryService
             ]);
 
             DB::commit();
+
             return $ledger;
         } catch (Exception $e) {
             DB::rollBack();
@@ -49,7 +50,7 @@ class InventoryService
     public function issueUnit(InventoryUnit $unit, $endUserId, $subUserId, $location, $docNumber)
     {
         if ($unit->status !== 'STOCK') {
-            throw new Exception("Unit is not in STOCK.");
+            throw new Exception('Unit is not in STOCK.');
         }
 
         DB::beginTransaction();
@@ -77,6 +78,7 @@ class InventoryService
             ]);
 
             DB::commit();
+
             return $accountability;
         } catch (Exception $e) {
             DB::rollBack();
@@ -103,6 +105,7 @@ class InventoryService
             ]);
 
             DB::commit();
+
             return true;
         } catch (Exception $e) {
             DB::rollBack();

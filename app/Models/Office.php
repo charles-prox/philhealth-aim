@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Office extends Model
@@ -14,12 +15,12 @@ class Office extends Model
         'parent_id',
     ];
 
-    public function parent(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    public function parent(): BelongsTo
     {
         return $this->belongsTo(self::class, 'parent_id');
     }
 
-    public function children(): \Illuminate\Database\Eloquent\Relations\HasMany
+    public function children(): HasMany
     {
         return $this->hasMany(self::class, 'parent_id');
     }
@@ -48,6 +49,7 @@ class Office extends Model
             }
             $current = $current->parent;
         }
+
         return null;
     }
 
@@ -63,6 +65,7 @@ class Office extends Model
             }
             $current = $current->parent;
         }
+
         return null;
     }
 

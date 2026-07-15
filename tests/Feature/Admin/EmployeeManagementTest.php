@@ -1,12 +1,13 @@
 <?php
 
-use App\Models\User;
 use App\Models\Employee;
 use App\Models\Office;
+use App\Models\User;
+use Database\Seeders\RolesAndPermissionsSeeder;
 use Livewire\Volt\Volt;
 
 beforeEach(function () {
-    $this->seed(\Database\Seeders\RolesAndPermissionsSeeder::class);
+    $this->seed(RolesAndPermissionsSeeder::class);
     // Seed standard test office
     Office::create(['name' => 'General Services Unit', 'acronym' => 'GSU', 'type' => 'UNIT']);
 });
@@ -61,7 +62,7 @@ test('admin can edit an existing employee record', function () {
         'designation' => 'Original Staff',
         'salary_grade' => 5,
         'office_division' => 'GSU',
-        'employment_status' => 'PERMANENT'
+        'employment_status' => 'PERMANENT',
     ]);
 
     $this->actingAs($admin);
@@ -92,7 +93,7 @@ test('admin can bulk import employees from pasted text', function () {
 
     $this->assertTrue(Employee::where('id_number', 'BULK001')->exists());
     $this->assertTrue(Employee::where('id_number', 'BULK002')->exists());
-    
+
     $empB = Employee::where('id_number', 'BULK002')->first();
     $this->assertEquals('CASUAL', $empB->employment_status);
 });

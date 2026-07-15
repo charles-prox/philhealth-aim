@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Models\ProcurementFolder;
+use App\Services\ProcurementPdfService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Queue\SerializesModels;
@@ -37,7 +38,7 @@ class GenerateProcurementDocumentsJob implements ShouldQueue
         Storage::disk('secure_procurement')->makeDirectory("{$folderName}/uploaded");
 
         // 2. Dispatch data to the PDF Compiler Service
-        $pdfCompiler = app(\App\Services\ProcurementPdfService::class);
+        $pdfCompiler = app(ProcurementPdfService::class);
         $pdfCompiler->compileCoreComplianceTemplates($this->folder, $folderName);
     }
 }

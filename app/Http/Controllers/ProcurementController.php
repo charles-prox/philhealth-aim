@@ -4,19 +4,20 @@ namespace App\Http\Controllers;
 
 use App\Models\ProcurementFolder;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Spatie\LaravelPdf\Facades\Pdf;
 
 class ProcurementController extends Controller
 {
-    public function __construct()
-    {
-    }
+    public function __construct() {}
 
     public function initiateRfq(Request $request, ProcurementFolder $folder)
     {
         // Example suppliers array
         $suppliers = $request->input('suppliers', []);
-        
+
         $folder->update([
             'status' => 'RFQ',
         ]);
@@ -27,7 +28,7 @@ class ProcurementController extends Controller
     public function syncBids(ProcurementFolder $folder)
     {
         $bids = [];
-        
+
         return view('procurement.bids', compact('folder', 'bids'));
     }
 
@@ -46,9 +47,9 @@ class ProcurementController extends Controller
             abort(403, 'Generating or viewing PDFs for Draft or Cancelled Purchase Requests is not allowed.');
         }
 
-        $secureDisk = \Illuminate\Support\Facades\Storage::disk('secure_procurement');
+        $secureDisk = Storage::disk('secure_procurement');
         $lockKey = 'pr-pdf-gen-' . $folder->id;
-        $lock = \Illuminate\Support\Facades\Cache::lock($lockKey, 15);
+        $lock = Cache::lock($lockKey, 15);
 
         try {
             $attachment = $lock->block(10, function () use ($folder, $secureDisk) {
@@ -62,7 +63,7 @@ class ProcurementController extends Controller
                         $folder->approved_signed_at ? $folder->approved_signed_at->timestamp : 0
                     );
                     $fileTime = $secureDisk->lastModified($existing->file_path);
-                    
+
                     if ($lastSigned <= $fileTime) {
                         return $existing;
                     }
@@ -76,7 +77,7 @@ class ProcurementController extends Controller
                 }
 
                 // Render and save PDF using Spatie templates/purchase-request
-                \Spatie\LaravelPdf\Facades\Pdf::view('pdf.templates.purchase-request', compact('folder'))
+                Pdf::view('pdf.templates.purchase-request', compact('folder'))
                     ->save($secureDisk->path($prPath));
 
                 // Sourcing attributes: pull initial author ID from folder/creator
@@ -94,7 +95,8 @@ class ProcurementController extends Controller
                 );
             });
         } catch (\Exception $e) {
-            \Illuminate\Support\Facades\Log::error("Failed to generate/fetch PR PDF: " . $e->getMessage(), ['exception' => $e]);
+            Log::error('Failed to generate/fetch PR PDF: ' . $e->getMessage(), ['exception' => $e]);
+
             return back()->with('error', 'Failed to generate PR PDF: ' . $e->getMessage());
         }
 

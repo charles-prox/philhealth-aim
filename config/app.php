@@ -123,4 +123,6 @@ return [
         'store' => env('APP_MAINTENANCE_STORE', 'database'),
     ],
 
+    'version' => env('APP_VERSION', trim(@shell_exec('git describe --tags --always 2>/dev/null') ?? '1.0.0-dev')),
+
 ];

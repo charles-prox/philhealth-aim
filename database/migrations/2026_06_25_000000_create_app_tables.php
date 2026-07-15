@@ -4,7 +4,8 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-return new class extends Migration {
+return new class extends Migration
+{
     public function up(): void
     {
         // 1. Parent Table: app_headers
@@ -23,7 +24,7 @@ return new class extends Migration {
         Schema::create('app_line_items', function (Blueprint $table) {
             $table->id();
             $table->foreignId('app_header_id')->constrained('app_headers')->onDelete('cascade');
-            
+
             // The 12 Mandatory APP Columns
             $table->string('project_title');
             $table->string('implementing_unit');
@@ -37,9 +38,9 @@ return new class extends Migration {
             $table->decimal('approved_budget', 15, 2);
             $table->string('strategy_tools')->nullable();
             $table->text('remarks')->nullable();
-            
+
             // System Internal Budget Tracking
-            $table->decimal('utilized_budget', 15, 2)->default(0.00); 
+            $table->decimal('utilized_budget', 15, 2)->default(0.00);
             $table->timestamps();
         });
 

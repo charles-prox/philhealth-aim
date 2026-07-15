@@ -23,7 +23,7 @@ class CobItemDistribution extends Model
 
     protected $casts = [
         'allocated_quantity' => 'integer',
-        'procured_quantity'  => 'integer',
+        'procured_quantity' => 'integer',
     ];
 
     // -------------------------------------------------------------------------

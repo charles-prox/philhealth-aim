@@ -54,20 +54,20 @@ class CobVersion extends Model
         if ($this->status === 'APPROVED' || $this->is_active) {
             return [
                 'label' => 'Approved',
-                'classes' => 'bg-[#d5e3ff] text-[#001b3c]'
+                'classes' => 'bg-[#d5e3ff] text-[#001b3c]',
             ];
         }
-        
+
         if ($this->status === 'SUPERSEDED') {
             return [
                 'label' => 'Superseded',
-                'classes' => 'bg-[#ffdbca] text-[#723610]'
+                'classes' => 'bg-[#ffdbca] text-[#723610]',
             ];
         }
 
         return [
             'label' => 'Draft',
-            'classes' => 'bg-[#eeedf2] text-[#43474f]'
+            'classes' => 'bg-[#eeedf2] text-[#43474f]',
         ];
     }
 }

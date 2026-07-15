@@ -2,8 +2,8 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\Model;
 use NumberFormatter;
 
 class PurchaseOrder extends Model
@@ -33,7 +33,8 @@ class PurchaseOrder extends Model
      */
     public function getTotalInWordsAttribute()
     {
-        $formatter = new NumberFormatter("en", NumberFormatter::SPELLOUT);
-        return ucwords($formatter->format($this->total_amount)) . " Pesos Only";
+        $formatter = new NumberFormatter('en', NumberFormatter::SPELLOUT);
+
+        return ucwords($formatter->format($this->total_amount)) . ' Pesos Only';
     }
 }

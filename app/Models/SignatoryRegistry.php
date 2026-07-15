@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Notifications\DocumentReRoutedNotification;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -47,9 +48,9 @@ class SignatoryRegistry extends Model
      * Resolves which employee currently holds the active signing pen for a
      * given position slot. Returns null if the primary slot has not been assigned yet.
      *
-     * @param  string   $positionCode  e.g., 'GSU_HEAD', 'RVP'
-     * @param  int|null $officeId      Required for office-scoped slots like 'DIVISION_CHIEF'
-     * @return int|null                The resolved employee_id, or null if unassigned
+     * @param  string  $positionCode  e.g., 'GSU_HEAD', 'RVP'
+     * @param  int|null  $officeId  Required for office-scoped slots like 'DIVISION_CHIEF'
+     * @return int|null The resolved employee_id, or null if unassigned
      */
     public static function getActiveSignatoryFor(string $positionCode, ?int $officeId = null): ?int
     {
@@ -66,7 +67,7 @@ class SignatoryRegistry extends Model
         }
 
         return match ($registry->active_holder) {
-            'OIC_1' => $registry->oic_primary_employee_id   ?? $registry->primary_employee_id,
+            'OIC_1' => $registry->oic_primary_employee_id ?? $registry->primary_employee_id,
             'OIC_2' => $registry->oic_secondary_employee_id ?? $registry->primary_employee_id,
             default => $registry->primary_employee_id, // 'PRIMARY' is the safe default
         };
@@ -77,9 +78,9 @@ class SignatoryRegistry extends Model
      * Used by the PR Wizard computed properties to build the authorized
      * signatory pool across primary + OIC columns, stripping nulls safely.
      *
-     * @param  array      $positionCodes  e.g., ['GSU_HEAD', 'DIVISION_CHIEF']
-     * @param  int|null   $officeId       Scope filter for office-bound slots
-     * @return array<int>                 Unique, non-null employee IDs
+     * @param  array  $positionCodes  e.g., ['GSU_HEAD', 'DIVISION_CHIEF']
+     * @param  int|null  $officeId  Scope filter for office-bound slots
+     * @return array<int> Unique, non-null employee IDs
      */
     public static function getAuthorizedEmployeeIds(array $positionCodes, ?int $officeId = null): array
     {
@@ -91,7 +92,7 @@ class SignatoryRegistry extends Model
             //   - only the user's office row for scoped slots (office_id = $officeId)
             $query->where(function ($q) use ($officeId) {
                 $q->whereNull('office_id')
-                  ->orWhere('office_id', $officeId);
+                    ->orWhere('office_id', $officeId);
             });
         }
 
@@ -119,7 +120,7 @@ class SignatoryRegistry extends Model
         }
 
         return match ($this->active_holder) {
-            'OIC_1' => $this->oic_primary_employee_id   ?? $this->primary_employee_id,
+            'OIC_1' => $this->oic_primary_employee_id ?? $this->primary_employee_id,
             'OIC_2' => $this->oic_secondary_employee_id ?? $this->primary_employee_id,
             default => $this->primary_employee_id,
         };
@@ -147,7 +148,7 @@ class SignatoryRegistry extends Model
                 if (!empty($original['primary_employee_id'])) {
                     $oldActiveHolder = $original['active_holder'] ?? 'PRIMARY';
                     $oldSignatoryId = match ($oldActiveHolder) {
-                        'OIC_1' => $original['oic_primary_employee_id']   ?? $original['primary_employee_id'],
+                        'OIC_1' => $original['oic_primary_employee_id'] ?? $original['primary_employee_id'],
                         'OIC_2' => $original['oic_secondary_employee_id'] ?? $original['primary_employee_id'],
                         default => $original['primary_employee_id'],
                     };
@@ -156,7 +157,7 @@ class SignatoryRegistry extends Model
                 // Resolve the new signatory ID
                 $newActiveHolder = $registry->active_holder;
                 $newSignatoryId = match ($newActiveHolder) {
-                    'OIC_1' => $registry->oic_primary_employee_id   ?? $registry->primary_employee_id,
+                    'OIC_1' => $registry->oic_primary_employee_id ?? $registry->primary_employee_id,
                     'OIC_2' => $registry->oic_secondary_employee_id ?? $registry->primary_employee_id,
                     default => $registry->primary_employee_id,
                 };
@@ -177,32 +178,32 @@ class SignatoryRegistry extends Model
                 unset($registry->pendingSignatoryMigration);
 
                 \DB::transaction(function () use ($oldSignatoryId, $newSignatoryId) {
-                    $inFlightFolders = \App\Models\ProcurementFolder::where('current_signatory_id', $oldSignatoryId)
+                    $inFlightFolders = ProcurementFolder::where('current_signatory_id', $oldSignatoryId)
                         ->where('status', 'ROUTING')
                         ->get();
 
                     foreach ($inFlightFolders as $folder) {
                         $folder->update(['current_signatory_id' => $newSignatoryId]);
 
-                        \App\Models\ProcurementLog::create([
+                        ProcurementLog::create([
                             'procurement_folder_id' => $folder->id,
                             'action' => 'SYSTEM_REROUTE',
                             'actor_id' => auth()->user()?->employee_id,
-                            'remarks' => "Document automatically transferred from previous officer to newly active signatory due to Admin switchboard matrix adjustment.",
+                            'remarks' => 'Document automatically transferred from previous officer to newly active signatory due to Admin switchboard matrix adjustment.',
                             'created_at' => now(),
                         ]);
 
                         // Send dynamic in-app notification to the PR creator user
                         if ($folder->created_by_id) {
-                            $creator = \App\Models\User::find($folder->created_by_id);
+                            $creator = User::find($folder->created_by_id);
                             if ($creator) {
-                                $newSignatory = \App\Models\Employee::find($newSignatoryId);
+                                $newSignatory = Employee::find($newSignatoryId);
                                 $newSignatoryName = $newSignatory ? $newSignatory->fullname : 'OIC/New Signatory';
                                 // We suffix (OIC) if it is OIC_1 or OIC_2
                                 if ($registry->active_holder !== 'PRIMARY') {
                                     $newSignatoryName .= ' (OIC)';
                                 }
-                                $creator->notify(new \App\Notifications\DocumentReRoutedNotification($folder, $newSignatoryName));
+                                $creator->notify(new DocumentReRoutedNotification($folder, $newSignatoryName));
                             }
                         }
                     }

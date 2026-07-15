@@ -5,6 +5,7 @@ namespace App\Models;
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Spatie\Permission\Traits\HasRoles;
@@ -12,7 +13,7 @@ use Spatie\Permission\Traits\HasRoles;
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
-    use HasFactory, Notifiable, HasRoles;
+    use HasFactory, HasRoles, Notifiable;
 
     /**
      * The attributes that are mass assignable.
@@ -36,14 +37,14 @@ class User extends Authenticatable
      * The verified Employee HR profile linked to this user account.
      * This is the single source of truth for all audit-trail actor resolution.
      */
-    public function employee(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    public function employee(): BelongsTo
     {
-        return $this->belongsTo(\App\Models\Employee::class);
+        return $this->belongsTo(Employee::class);
     }
 
-    public function office(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    public function office(): BelongsTo
     {
-        return $this->belongsTo(\App\Models\Office::class);
+        return $this->belongsTo(Office::class);
     }
 
     /**
