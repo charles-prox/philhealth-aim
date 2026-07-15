@@ -112,3 +112,24 @@ it('advances to step 2 when selection is valid from step 1', function () {
         ->assertHasNoErrors()
         ->assertSet('currentStep', 2);
 });
+
+it('validates ProcurementFolderForm event dates correctly', function () {
+    $component = new class extends \Livewire\Component {};
+    $form = new \App\Livewire\Forms\ProcurementFolderForm($component, 'form');
+
+    // 1. Valid future range
+    $form->event_range = now()->addDays(2)->format('Y-m-d') . ' to ' . now()->addDays(5)->format('Y-m-d');
+    expect($form->validateEventDates())->toBeTrue();
+    expect($form->event_start_date)->toBe(now()->addDays(2)->format('Y-m-d'));
+    expect($form->event_end_date)->toBe(now()->addDays(5)->format('Y-m-d'));
+
+    // 2. Reject today
+    $form = new \App\Livewire\Forms\ProcurementFolderForm($component, 'form');
+    $form->event_range = now()->format('Y-m-d') . ' to ' . now()->addDays(2)->format('Y-m-d');
+    expect($form->validateEventDates())->toBeFalse();
+
+    // 3. Reject past dates
+    $form = new \App\Livewire\Forms\ProcurementFolderForm($component, 'form');
+    $form->event_range = now()->subDays(2)->format('Y-m-d') . ' to ' . now()->addDays(2)->format('Y-m-d');
+    expect($form->validateEventDates())->toBeFalse();
+});
