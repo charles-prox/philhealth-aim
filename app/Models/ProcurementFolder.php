@@ -148,6 +148,8 @@ class ProcurementFolder extends Model
         'budget_code',
         'budget_cob_year',
         'budget_remarks',
+        'procurement_category',
+        'event_date',
     ];
 
     protected $casts = [
@@ -159,6 +161,7 @@ class ProcurementFolder extends Model
         'approved_signed_at' => 'datetime',
         'gsu_accepted_at' => 'datetime',
         'budget_signed_at' => 'datetime',
+        'event_date' => 'date',
     ];
 
     public function prItems()

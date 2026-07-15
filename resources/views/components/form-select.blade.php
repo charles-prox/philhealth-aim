@@ -1,7 +1,7 @@
 @props(['label', 'icon' => null, 'placeholder' => 'Select an option', 'options' => [], 'error' => null, 'multiple' => false, 'searchable' => false, 'placement' => 'bottom'])
 
 <div class="flex flex-col gap-2" 
-     :class="open ? 'relative z-[70]' : ''"
+     :class="open ? 'relative z-[9999]' : ''"
      data-options="{{ json_encode($options) }}"
      x-data="{ 
         open: false, 
@@ -9,6 +9,31 @@
         selected: @if($attributes->wire('model')) @entangle($attributes->wire('model')) @else null @endif,
         searchTerm: '',
         options: {{ json_encode($options) }},
+        
+        getDropdownStyles() {
+            if (!this.open || !this.$refs.button) return {};
+            const rect = this.$refs.button.getBoundingClientRect();
+            const placement = '{{ $placement }}';
+            const spaceBelow = window.innerHeight - rect.bottom;
+            const spaceAbove = rect.top;
+            const useTop = (placement === 'top' || (spaceBelow < 250 && spaceAbove > spaceBelow));
+            
+            if (useTop) {
+                return {
+                    position: 'fixed',
+                    bottom: (window.innerHeight - rect.top + 4) + 'px',
+                    left: rect.left + 'px',
+                    width: rect.width + 'px',
+                };
+            } else {
+                return {
+                    position: 'fixed',
+                    top: (rect.bottom + 4) + 'px',
+                    left: rect.left + 'px',
+                    width: rect.width + 'px',
+                };
+            }
+        },
         
         init() {
             const observer = new MutationObserver((mutations) => {
@@ -99,9 +124,10 @@
         </div>
     @endif
 
-    <div class="relative" :class="open ? 'z-[70]' : ''" @click.away="open = false">
+    <div class="relative" :class="open ? 'z-[9999]' : ''" @click.away="open = false" @scroll.window.capture="if ($refs.menu && !$refs.menu.contains($event.target)) open = false" @resize.window="open = false">
         <!-- Trigger Button -->
         <button type="button" 
+                x-ref="button"
                 @click="open = !open" 
                 {{ $attributes->except(['label', 'icon', 'error', 'options', 'placeholder'])->class([
                     'w-full py-2.5 bg-white border rounded-lg focus:ring-2 focus:ring-[#001e40] focus:border-[#001e40] transition-all text-sm flex items-center justify-between hover:border-[#001e40] group',
@@ -126,10 +152,12 @@
 
         <!-- Dropdown Menu -->
         <div x-show="open" 
+             x-ref="menu"
              x-transition:enter="transition ease-out duration-100"
              x-transition:enter-start="transform opacity-0 scale-95"
              x-transition:enter-end="transform opacity-100 scale-100"
-             class="absolute z-[60] w-full bg-white border border-[#c3c6d1] rounded-xl shadow-xl overflow-hidden flex flex-col {{ $placement === 'top' ? 'bottom-full mb-2' : 'mt-2' }}"
+             class="fixed z-[9999] bg-white border border-[#c3c6d1] rounded-xl shadow-xl overflow-hidden flex flex-col"
+             :style="getDropdownStyles()"
              style="display: none;">
             
             @if($searchable)

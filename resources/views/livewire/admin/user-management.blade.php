@@ -233,7 +233,7 @@ new #[Layout('layouts.app')] class extends Component
     }
 }; ?>
 
-<div class="p-container-padding bg-background space-y-6">
+<div class="p-container-padding bg-background ">
 
     {{-- Flash Status --}}
     @if (session('status'))

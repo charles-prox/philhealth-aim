@@ -34,6 +34,7 @@ it('increments the sequence correctly across months of the same year', function 
         'tracking_number' => 'TRK-2026-00001',
         'office_division' => 'GSU',
         'status' => 'DRAFT',
+        'procurement_category' => 'OFFICE_SUPPLIES',
     ]);
     
     ProcurementFolder::create([
@@ -41,6 +42,7 @@ it('increments the sequence correctly across months of the same year', function 
         'tracking_number' => 'TRK-2026-00002',
         'office_division' => 'GSU',
         'status' => 'DRAFT',
+        'procurement_category' => 'OFFICE_SUPPLIES',
     ]);
     
     $expectedNext = "{$year2}{$month2}PR-003";
@@ -61,6 +63,7 @@ it('resets the sequence to 001 for a new year', function () {
         'tracking_number' => 'TRK-2025-00045',
         'office_division' => 'GSU',
         'status' => 'DRAFT',
+        'procurement_category' => 'OFFICE_SUPPLIES',
     ]);
     
     $expected = "{$year2}{$month2}PR-001";

@@ -27,6 +27,11 @@ new class extends Component
     public array $stagedFiles = [];
     public array $stagedFileNames = [];
 
+    // PR Categorization & Conditional Event Date Tracking
+    public string $procurementCategory = '';
+    public bool $isTiedToEvent = false;
+    public ?string $eventDate = null;
+
     // Search and Input State
     public string $search = '';
     public string $searchQuery = '';
@@ -97,6 +102,9 @@ new class extends Component
         $this->approvedById = null;
         $this->currentStep = 1;
         $this->trackingNumber = $this->generateTrackingNumber();
+        $this->procurementCategory = '';
+        $this->isTiedToEvent = false;
+        $this->eventDate = null;
 
         if ($this->folderId) {
             $folder = ProcurementFolder::findOrFail($this->folderId);
@@ -104,6 +112,9 @@ new class extends Component
             $this->purpose = $folder->overall_purpose;
             $this->recommendedById = $folder->recommended_by_id;
             $this->approvedById = $folder->approved_by_id;
+            $this->procurementCategory = $folder->procurement_category ?? '';
+            $this->isTiedToEvent = $folder->event_date !== null;
+            $this->eventDate = $folder->event_date ? $folder->event_date->format('Y-m-d') : null;
 
             // Restore basket from pr_items
             foreach ($folder->prItems as $item) {
@@ -122,6 +133,31 @@ new class extends Component
                 }
             }
         }
+    }
+
+    public function updatedIsTiedToEvent($value): void
+    {
+        if (!$value) {
+            $this->eventDate = null;
+        }
+    }
+
+    public function validateStepOne()
+    {
+        $this->validate([
+            'procurementCategory' => 'required|string',
+            'isTiedToEvent'        => 'required|boolean',
+            
+            // CONDITIONAL INPUT RULE: Required only if checkbox flag indicator is marked true. Must be a future/current date.
+            'eventDate'            => 'required_if:isTiedToEvent,true|nullable|date|after_or_equal:today',
+        ], [
+            'procurementCategory.required' => 'Operational Constraint: Please select a baseline procurement classification category.',
+            'eventDate.required_if'        => 'Logistics Requirement: Because this request is tied to an event, you must specify the scheduled date of the event.',
+            'eventDate.after_or_equal'     => 'Timeline Violation: The targeted event date cannot be a past calendar date.'
+        ]);
+
+        // If validation passes, advance the wizard sequence index safely
+        $this->currentStep = 2;
     }
 
     public function updatedFileOthers(): void
@@ -275,9 +311,15 @@ new class extends Component
                 'purpose'          => 'required|string|max:1000',
                 'recommendedById'  => 'required|integer|in:' . $validRecommenderIds,
                 'approvedById'     => 'required|integer|in:' . $validApproverIds,
+                'procurementCategory' => 'required|string',
+                'isTiedToEvent'        => 'required|boolean',
+                'eventDate'            => 'required_if:isTiedToEvent,true|nullable|date|after_or_equal:today',
             ], [
                 'recommendedById.in' => 'The selected recommending officer is not an authorized signatory for this PR.',
                 'approvedById.in'    => 'The selected approving officer is not an authorized signatory for this PR.',
+                'procurementCategory.required' => 'Operational Constraint: Please select a baseline procurement classification category.',
+                'eventDate.required_if'        => 'Logistics Requirement: Because this request is tied to an event, you must specify the scheduled date of the event.',
+                'eventDate.after_or_equal'     => 'Timeline Violation: The targeted event date cannot be a past calendar date.'
             ]);
 
             if (empty($this->basket)) {
@@ -377,6 +419,9 @@ new class extends Component
             'approvedById'        => 'required|integer|in:' . $validApproverIds,
             'stagedFiles.*'       => 'nullable|file|mimes:pdf,docx,xlsx,png,jpg|max:10240',
             'stagedFileNames.*'   => 'required|string|min:3|max:150',
+            'procurementCategory' => 'required|string',
+            'isTiedToEvent'        => 'required|boolean',
+            'eventDate'            => 'required_if:isTiedToEvent,true|nullable|date|after_or_equal:today',
         ], [
             'recommendedById.in'  => 'The selected recommending officer is not an authorized signatory for this PR.',
             'approvedById.in'     => 'The selected approving officer is not an authorized signatory for this PR.',
@@ -384,6 +429,9 @@ new class extends Component
             'stagedFiles.*.max'   => 'Supporting attachments must not exceed 10MB in size.',
             'stagedFileNames.*.required' => 'Each uploaded document must have a descriptive name.',
             'stagedFileNames.*.min'      => 'Document name must be at least 3 characters.',
+            'procurementCategory.required' => 'Operational Constraint: Please select a baseline procurement classification category.',
+            'eventDate.required_if'        => 'Logistics Requirement: Because this request is tied to an event, you must specify the scheduled date of the event.',
+            'eventDate.after_or_equal'     => 'Timeline Violation: The targeted event date cannot be a past calendar date.'
         ]);
 
         if ($this->folder && $this->folder->status === 'RETURNED_FOR_COMPLIANCE' && !$this->folder->attachments()->where('attachment_type', 'USER_OTHER')->exists() && empty($this->stagedFiles)) {
@@ -498,6 +546,8 @@ new class extends Component
                     'approved_by_designation'      => $approvedEmployee->designation,
                     'office_id'                    => auth()->user()->office_id,
                     'created_by_id'                => auth()->id(),
+                    'procurement_category'         => $this->procurementCategory,
+                    'event_date'                   => $this->isTiedToEvent ? $this->eventDate : null,
                 ]);
             } else {
                 $folder = ProcurementFolder::create([
@@ -516,6 +566,8 @@ new class extends Component
                     'approved_by_designation'      => $approvedEmployee->designation,
                     'office_id'                    => auth()->user()->office_id,
                     'created_by_id'                => auth()->id(),
+                    'procurement_category'         => $this->procurementCategory,
+                    'event_date'                   => $this->isTiedToEvent ? $this->eventDate : null,
                 ]);
             }
 
@@ -945,6 +997,8 @@ new class extends Component
                 <div class="text-sm font-bold text-[#ba1a1a] bg-red-50 px-4 py-2 rounded-xl border border-red-200">{{ $message }}</div>
             @enderror
 
+            <!-- Categorization Form moved to right sidebar -->
+
             <!-- Catalog Layout -->
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
                 <!-- Left Column: APP Catalog list -->
@@ -1138,6 +1192,8 @@ new class extends Component
                 <!-- Right Column: Sidebar (Selected Item details & History) -->
                 <div class="lg:col-span-1 sticky top-[320px] space-y-4 my-4">
                     @if($this->selectedAppLine)
+
+
                         <div class="bg-white border border-[#eeedf2] rounded-2xl p-5 shadow-2xs space-y-4">
                             <div class="flex items-center gap-2 border-b border-[#eeedf2] pb-3">
                                 <div class="w-8 h-8 rounded-lg bg-[#001e40]/10 flex items-center justify-center text-[#001e40]">
@@ -1446,8 +1502,58 @@ new class extends Component
                     </div>
 
                     {{-- Summary Side card --}}
-                    <div class="lg:col-span-1">
-                        <div class="bg-[#f9f9fe] border border-[#eeedf2] rounded-2xl p-6 flex flex-col justify-between h-full sticky top-[176px]">
+                    <div class="lg:col-span-1 sticky top-[176px] space-y-4">
+                        <!-- Step 2 PR Categorization & Events Card -->
+                        <div class="bg-[#f9f9fe] border border-[#eeedf2] rounded-2xl p-5 shadow-2xs space-y-4">
+                            <div class="flex items-center gap-2 border-b border-[#eeedf2] pb-3">
+                                <div class="w-8 h-8 rounded-lg bg-[#001e40]/10 flex items-center justify-center text-[#001e40]">
+                                    <span class="material-symbols-outlined text-[18px]">category</span>
+                                </div>
+                                <div>
+                                    <h4 class="text-xs font-bold text-[#001e40] uppercase tracking-wider">PR Categorization & Events</h4>
+                                </div>
+                            </div>
+                            
+                            <div class="space-y-4">
+                                <!-- Procurement Category Dropdown Element -->
+                                <div>
+                                    <label class="text-xs font-bold text-on-surface-variant block mb-1">Procurement Category <span class="text-red-600 font-bold">*</span></label>
+                                    <select wire:model="procurementCategory" class="w-full text-xs p-2 rounded-lg border border-gray-300 bg-white text-gray-900 focus:border-blue-900 outline-none">
+                                        <option value="">-- Select Category --</option>
+                                        <option value="OFFICE_SUPPLIES">Office Supplies & Stationery</option>
+                                        <option value="IT_EQUIPMENT">IT Hardware & Peripherals</option>
+                                        <option value="CATERING_EVENTS">Catering, Meals, & Events</option>
+                                        <option value="REPAIRS_MAINTENANCE">Vehicle / Building Maintenance</option>
+                                        <option value="SERVICES_CONSULTING">General Contractual Services</option>
+                                    </select>
+                                    @error('procurementCategory') <span class="text-red-600 text-[10px] mt-0.5 block font-medium">{{ $message }}</span> @enderror
+                                </div>
+
+                                <!-- Toggle Checkbox Flag Box -->
+                                <div class="flex flex-col">
+                                    <span class="text-xs font-bold text-on-surface-variant block mb-1">Event Scheduling Flag</span>
+                                    <label class="inline-flex items-center gap-2 text-xs font-semibold cursor-pointer mt-1 select-none text-gray-900">
+                                        <input type="checkbox" wire:model.live="isTiedToEvent" class="rounded text-[#001e40] focus:ring-[#001e40] w-4 h-4">
+                                        Is this request tied to an event?
+                                    </label>
+                                </div>
+
+                                <!-- Conditional Animated Date Field Input Element -->
+                                <div class="transition-all duration-200 {{ $isTiedToEvent ? 'opacity-100 scale-100' : 'opacity-40 pointer-events-none' }}">
+                                    <label class="text-xs font-bold text-on-surface-variant block mb-1">
+                                        Date of Event @if($isTiedToEvent) <span class="text-red-600 font-bold">*</span> @endif
+                                    </label>
+                                    <input type="date" 
+                                           wire:model="eventDate" 
+                                           @if(!$isTiedToEvent) disabled @endif
+                                           class="w-full text-xs p-2 rounded-lg border border-gray-300 bg-white font-medium focus:border-blue-900 outline-none">
+                                    @error('eventDate') <span class="text-red-600 text-[10px] mt-0.5 block font-medium">{{ $message }}</span> @enderror
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- PR Summary Card -->
+                        <div class="bg-[#f9f9fe] border border-[#eeedf2] rounded-2xl p-6 flex flex-col justify-between">
                             <div class="space-y-6">
                                 <div class="flex items-center gap-2 border-b border-[#eeedf2] pb-3">
                                     <div class="w-8 h-8 rounded-lg bg-[#001e40]/10 flex items-center justify-center text-[#001e40]">
