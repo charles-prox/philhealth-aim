@@ -25,3 +25,16 @@ To prevent files from ballooning beyond our 500-line warning threshold, all new 
 3.  **No Financial/Routing Rule Checks in Components:** Signatory routing, cost thresholds, and approval matrices must live in model scopes or specialized service classes.
 4.  **No Manual Mapping Loops:** Form properties and model database columns must be hydrated using Form Object `fill()` or custom hydrator methods.
 
+## 🛠️ Custom Generator Command
+
+To make scaffolding new modules easy and ensure directory structure compliance, run the custom generator command instead of manually creating files:
+```bash
+./sail artisan make:aim-module [ModuleName]
+```
+This scaffolds:
+1. **Form Object:** `app/Livewire/Forms/[ModuleName]Form.php`
+2. **Service Class:** `app/Services/[ModuleName]Service.php`
+3. **Livewire Component:** `app/Livewire/Procurement/[ModuleName]Portal.php`
+4. **Views & Partials Folder:** `resources/views/livewire/procurement/[module-name]/partials/`
+
+
