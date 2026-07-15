@@ -17,7 +17,7 @@ class ProcurementForm extends Form
 
     public string $procurementCategory = '';
 
-    public bool $isTiedToEvent = false;
+    public ?bool $isTiedToEvent = null;
 
     public ?string $eventDate = null;
 

@@ -94,7 +94,7 @@ new class extends Component
         $this->currentStep = 1;
         $this->form->trackingNumber = $this->generateTrackingNumber();
         $this->form->procurementCategory = '';
-        $this->form->isTiedToEvent = false;
+        $this->form->isTiedToEvent = null;
         $this->form->eventDate = null;
 
         if ($this->folderId) {

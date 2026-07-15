@@ -190,37 +190,52 @@
                 <div class="space-y-4">
                     <!-- Procurement Category Dropdown Element -->
                     <div>
-                        <label class="text-xs font-bold text-on-surface-variant block mb-1">Procurement Category <span class="text-red-600 font-bold">*</span></label>
-                        <select wire:model="form.procurementCategory" class="w-full text-xs p-2 rounded-lg border border-gray-300 bg-white text-gray-900 focus:border-blue-900 outline-none">
-                            <option value="">-- Select Category --</option>
-                            <option value="OFFICE_SUPPLIES">Office Supplies & Stationery</option>
-                            <option value="IT_EQUIPMENT">IT Hardware & Peripherals</option>
-                            <option value="CATERING_EVENTS">Catering, Meals, & Events</option>
-                            <option value="REPAIRS_MAINTENANCE">Vehicle / Building Maintenance</option>
-                            <option value="SERVICES_CONSULTING">General Contractual Services</option>
-                        </select>
-                        @error('form.procurementCategory') <span class="text-red-600 text-[10px] mt-0.5 block font-medium">{{ $message }}</span> @enderror
+                        <x-form-select 
+                            label="Procurement Category" 
+                            placeholder="Select Category..." 
+                            icon="category" 
+                            required
+                            wire:model="form.procurementCategory" 
+                            :options="[
+                                'OFFICE_SUPPLIES' => 'Office Supplies & Stationery',
+                                'IT_EQUIPMENT' => 'IT Hardware & Peripherals',
+                                'CATERING_EVENTS' => 'Catering, Meals, & Events',
+                                'REPAIRS_MAINTENANCE' => 'Vehicle / Building Maintenance',
+                                'SERVICES_CONSULTING' => 'General Contractual Services',
+                            ]" 
+                            :disabled="$inputsDisabled" 
+                            :error="$errors->first('form.procurementCategory')"
+                        />
                     </div>
 
-                    <!-- Toggle Checkbox Flag Box -->
-                    <div class="flex flex-col">
-                        <span class="text-xs font-bold text-on-surface-variant block mb-1">Event Scheduling Flag</span>
-                        <label class="inline-flex items-center gap-2 text-xs font-semibold cursor-pointer mt-1 select-none text-gray-900">
-                            <input type="checkbox" wire:model.live="form.isTiedToEvent" class="rounded text-[#001e40] focus:ring-[#001e40] w-4 h-4">
-                            Is this request tied to an event?
-                        </label>
+                    <!-- Event Scheduling Flag -->
+                    <div>
+                        <x-form-select 
+                            label="Is this request tied to an event?" 
+                            placeholder="Select Yes/No..." 
+                            icon="event" 
+                            required
+                            wire:model.live="form.isTiedToEvent" 
+                            :options="[
+                                '1' => 'Yes, scheduled event',
+                                '0' => 'No, regular purchase'
+                            ]" 
+                            :disabled="$inputsDisabled" 
+                            :error="$errors->first('form.isTiedToEvent')"
+                        />
                     </div>
 
                     <!-- Conditional Animated Date Field Input Element -->
                     <div class="transition-all duration-200 {{ $form->isTiedToEvent ? 'opacity-100 scale-100' : 'opacity-40 pointer-events-none' }}">
-                        <label class="text-xs font-bold text-on-surface-variant block mb-1">
-                            Date of Event @if($form->isTiedToEvent) <span class="text-red-600 font-bold">*</span> @endif
-                        </label>
-                        <input type="date" 
-                               wire:model="form.eventDate" 
-                               @if(!$form->isTiedToEvent) disabled @endif
-                               class="w-full text-xs p-2 rounded-lg border border-gray-300 bg-white font-medium focus:border-blue-900 outline-none">
-                        @error('form.eventDate') <span class="text-red-600 text-[10px] mt-0.5 block font-medium">{{ $message }}</span> @enderror
+                        <x-form-input 
+                            type="date"
+                            label="Date of Event"
+                            icon="calendar_month"
+                            :required="$form->isTiedToEvent"
+                            wire:model="form.eventDate"
+                            :disabled="!$form->isTiedToEvent || $inputsDisabled"
+                            :error="$errors->first('form.eventDate')"
+                        />
                     </div>
                 </div>
             </div>
