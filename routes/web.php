@@ -98,6 +98,14 @@ Volt::route('admin/document-workspace/{taskId}', 'admin.document-review-workspac
     ->middleware(['auth'])
     ->name('admin.document-workspace');
 
+Route::get('admin/category-requests', \App\Livewire\Admin\CategoryRequestPortal::class)
+    ->middleware(['auth'])
+    ->name('admin.category-requests');
+
+Route::get('admin/categories', \App\Livewire\Admin\CategoryManagementPortal::class)
+    ->middleware(['auth'])
+    ->name('admin.categories');
+
 // COB Management Module
 Volt::route('cob/registry', 'cob.cob-registry')
     ->middleware(['auth'])
