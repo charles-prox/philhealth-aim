@@ -196,13 +196,7 @@
                             icon="category" 
                             required
                             wire:model="form.procurementCategory" 
-                            :options="[
-                                'OFFICE_SUPPLIES' => 'Office Supplies & Stationery',
-                                'IT_EQUIPMENT' => 'IT Hardware & Peripherals',
-                                'CATERING_EVENTS' => 'Catering, Meals, & Events',
-                                'REPAIRS_MAINTENANCE' => 'Vehicle / Building Maintenance',
-                                'SERVICES_CONSULTING' => 'General Contractual Services',
-                            ]" 
+                            :options="$this->categories" 
                             :disabled="$inputsDisabled" 
                             :error="$errors->first('form.procurementCategory')"
                         />

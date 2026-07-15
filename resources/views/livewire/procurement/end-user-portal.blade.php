@@ -463,6 +463,14 @@ new class extends Component
     {
         return collect($this->basket)->sum('total_cost');
     }
+
+    #[Computed]
+    public function categories(): array
+    {
+        return \App\Models\ProcurementCategory::alphabetical()
+            ->pluck('name', 'name')
+            ->toArray();
+    }
 }; ?>
 
 <div>
