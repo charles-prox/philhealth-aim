@@ -93,6 +93,6 @@ class CategoryManagementPortal extends Component
 
         return view('livewire.admin.category-management.category-management-portal', [
             'categories' => $query->orderBy('name')->paginate(10)
-        ]);
+        ])->layout('layouts.app');
     }
 }

@@ -77,6 +77,6 @@ class CategoryRequestPortal extends Component
             'requests' => ProcurementCategoryRequest::with('user.office')
                 ->latest()
                 ->paginate(10)
-        ]);
+        ])->layout('layouts.app');
     }
 }
