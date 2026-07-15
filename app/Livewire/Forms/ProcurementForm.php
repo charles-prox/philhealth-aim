@@ -33,13 +33,13 @@ class ProcurementForm extends Form
             'approvedById' => 'required|integer|in:' . $validApproverIds,
             'procurementCategory' => 'required|string',
             'isTiedToEvent' => 'required|boolean',
-            'eventDate' => 'required_if:isTiedToEvent,true|nullable|date|after_or_equal:today',
+            'eventDate' => 'required_if:isTiedToEvent,true|nullable|date|after:today',
         ], [
             'recommendedById.in' => 'The selected recommending officer is not an authorized signatory for this PR.',
             'approvedById.in' => 'The selected approving officer is not an authorized signatory for this PR.',
             'procurementCategory.required' => 'Operational Constraint: Please select a baseline procurement classification category.',
             'eventDate.required_if' => 'Logistics Requirement: Because this request is tied to an event, you must specify the scheduled date of the event.',
-            'eventDate.after_or_equal' => 'Timeline Violation: The targeted event date cannot be a past calendar date.',
+            'eventDate.after' => 'Timeline Violation: The targeted event date must be a future calendar date (after today).',
         ]);
     }
 

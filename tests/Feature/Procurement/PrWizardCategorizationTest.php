@@ -85,14 +85,23 @@ it('blocks advancing when tied to event but date is missing', function () {
         ->assertSet('currentStep', 2);
 });
 
-it('blocks advancing when event date is in the past', function () {
+it('blocks advancing when event date is in the past or is today', function () {
     Volt::test('procurement.end-user-portal')
         ->set('currentStep', 2)
         ->set('form.procurementCategory', 'OFFICE_SUPPLIES')
         ->set('form.isTiedToEvent', true)
         ->set('form.eventDate', now()->subDay()->format('Y-m-d'))
         ->call('nextStep')
-        ->assertHasErrors(['form.eventDate' => 'after_or_equal'])
+        ->assertHasErrors(['form.eventDate' => 'after'])
+        ->assertSet('currentStep', 2);
+
+    Volt::test('procurement.end-user-portal')
+        ->set('currentStep', 2)
+        ->set('form.procurementCategory', 'OFFICE_SUPPLIES')
+        ->set('form.isTiedToEvent', true)
+        ->set('form.eventDate', now()->format('Y-m-d'))
+        ->call('nextStep')
+        ->assertHasErrors(['form.eventDate' => 'after'])
         ->assertSet('currentStep', 2);
 });
 
