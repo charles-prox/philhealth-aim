@@ -1,5 +1,5 @@
 {{-- Step 2: PR Details --}}
-<div class="bg-white border border-[#c3c6d1] rounded-2xl p-8 shadow-sm space-y-6 mt-4 mb-6">
+<div class="bg-white border border-[#c3c6d1] rounded-2xl p-8 shadow-sm flex flex-col gap-6 mt-4 mb-6">
     <div class="border-b border-[#eeedf2] pb-4">
         <h3 class="text-xl font-bold text-[#001e40]">Enter Purchase Request Details</h3>
         <p class="text-xs text-[#43474f] mt-1">Specify the official PR tracking number and operational purpose for this compiled bundle.</p>
@@ -82,7 +82,7 @@
 
         {{-- Right Side: Minimal Summary Panel --}}
         <div class="bg-[#f9f9fe] border border-[#eeedf2] rounded-2xl p-6 flex flex-col justify-between h-full">
-            <div class="space-y-6">
+            <div class="flex flex-col gap-6">
                 <div class="flex items-center gap-2">
                     <div class="w-8 h-8 rounded-lg bg-[#001e40]/10 flex items-center justify-center text-[#001e40]">
                         <span class="material-symbols-outlined text-[18px]">receipt_long</span>

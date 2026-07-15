@@ -23,7 +23,7 @@ new class extends Component
     }
 }; ?>
 
-<section class="space-y-6">
+<section class="flex flex-col gap-6">
     <header>
         <h2 class="text-lg font-medium text-gray-900">
             {{ __('Delete Account') }}

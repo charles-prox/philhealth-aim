@@ -1,5 +1,5 @@
 {{-- Step 3: Signature & Generation Review --}}
-<div class="bg-white border border-[#c3c6d1] rounded-2xl p-8 shadow-sm space-y-6 mt-4 mb-6">
+<div class="bg-white border border-[#c3c6d1] rounded-2xl p-8 shadow-sm flex flex-col gap-6 mt-4 mb-6">
     <div class="border-b border-[#eeedf2] pb-4 flex justify-between items-center">
         <div>
             <h3 class="text-xl font-bold text-[#001e40]">Review & Lock Document</h3>

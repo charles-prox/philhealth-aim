@@ -17,7 +17,7 @@
 
             <div class="max-h-[350px] overflow-y-auto pr-2 custom-scrollbar space-y-4">
                 @if($historyFolder && $historyFolder->logs->isNotEmpty())
-                    <div class="relative border-l-2 border-[#eeedf2] ml-4 pl-6 space-y-6">
+                    <div class="relative border-l-2 border-[#eeedf2] ml-4 pl-6 flex flex-col gap-6">
                         @foreach($historyFolder->logs as $log)
                             @php
                                 $actionClasses = [

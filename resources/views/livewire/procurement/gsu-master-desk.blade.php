@@ -420,7 +420,7 @@ new #[Layout('layouts.app')] class extends Component
         @endif
     @endpush
 
-        <div class="p-container-padding bg-background space-y-6" 
+        <div class="p-container-padding bg-background flex flex-col gap-6" 
              x-on:open-pdf.window="window.open($event.detail.url, '_blank')"
              x-on:open-new-pr.window="$wire.openNewPr()">
 
@@ -432,7 +432,7 @@ new #[Layout('layouts.app')] class extends Component
                  x-transition:leave="transition ease-in duration-200"
                  x-transition:leave-start="opacity-100 translate-y-0"
                  x-transition:leave-end="opacity-0 -translate-y-4"
-                 class="space-y-6">
+                 class="flex flex-col gap-6">
 
             {{-- APP Warning Banner --}}
             @if(!$appGateCleared)

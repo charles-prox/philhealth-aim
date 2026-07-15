@@ -19,7 +19,7 @@
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 items-stretch">
         {{-- Form inputs --}}
-        <div class="lg:col-span-2 space-y-6">
+        <div class="lg:col-span-2 flex flex-col gap-6">
             
             {{-- Metadata Fields --}}
             <div class="bg-[#f9f9fe] border border-[#eeedf2] p-5 rounded-2xl space-y-4">
@@ -227,7 +227,7 @@
 
             <!-- PR Summary Card -->
             <div class="bg-[#f9f9fe] border border-[#eeedf2] rounded-2xl p-6 flex flex-col justify-between">
-                <div class="space-y-6">
+                <div class="flex flex-col gap-6">
                     <div class="flex items-center gap-2 border-b border-[#eeedf2] pb-3">
                         <div class="w-8 h-8 rounded-lg bg-[#001e40]/10 flex items-center justify-center text-[#001e40]">
                             <span class="material-symbols-outlined text-[18px]">receipt_long</span>

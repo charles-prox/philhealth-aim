@@ -131,7 +131,7 @@ new #[Layout('layouts.app')] class extends Component
     }
 }; ?>
 
-<div class="p-gutter space-y-6">
+<div class="p-gutter flex flex-col gap-6">
     @section('header_title', 'GSU Inbox — Document Review')
 
     {{-- Flash Messages --}}
@@ -231,7 +231,7 @@ new #[Layout('layouts.app')] class extends Component
         </div>
 
         {{-- RIGHT PANEL: Action Execution Sidebar (col-span-1) --}}
-        <div class="lg:col-span-1 space-y-6">
+        <div class="lg:col-span-1 flex flex-col gap-6">
 
             {{-- PR Summary Card --}}
             <div class="bg-white border border-[#c3c6d1] rounded-2xl shadow-sm overflow-hidden">
@@ -267,7 +267,7 @@ new #[Layout('layouts.app')] class extends Component
                 <div class="p-gutter border-b border-[#c3c6d1] bg-[#f9f9fe]">
                     <h3 class="font-bold text-sm text-[#001e40]">GSU Review & Action</h3>
                 </div>
-                <div class="p-6 space-y-6">
+                <div class="p-6 flex flex-col gap-6">
 
                     {{-- Accept Section --}}
                     <div class="space-y-3">

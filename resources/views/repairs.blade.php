@@ -15,7 +15,7 @@
         $hasData = $jobs->count() > 0;
     @endphp
 
-    <div class="p-container-padding bg-background space-y-6">
+    <div class="p-container-padding bg-background flex flex-col gap-6">
 
         {{-- KPI Bento Grid --}}
         <div class="grid grid-cols-2 md:grid-cols-4 gap-gutter">

@@ -122,7 +122,7 @@ new #[Layout('layouts.app')] class extends Component
     }
 }; ?>
 
-<div class="p-container-padding bg-background space-y-6">
+<div class="p-container-padding bg-background flex flex-col gap-6">
 
     {{-- Back + Header --}}
     <div class="flex items-center gap-4">
