@@ -173,11 +173,11 @@ Route::get('/api/search', function () {
         ->limit(5)
         ->get(['fullname', 'designation', 'office_division', 'employment_status'])
         ->map(fn ($e) => [
-        'fullname' => $e->fullname,
-        'designation' => $e->designation,
-        'office_division' => $e->office_division,
-        'status' => $e->employment_status,
-    ]);
+            'fullname' => $e->fullname,
+            'designation' => $e->designation,
+            'office_division' => $e->office_division,
+            'status' => $e->employment_status,
+        ]);
 
     return response()->json(['folders' => $folders, 'employees' => $employees]);
 })->middleware('auth')->name('api.search');
