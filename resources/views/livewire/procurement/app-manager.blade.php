@@ -148,7 +148,7 @@ new class extends Component
     }
 }; ?>
 
-<div class="{{ $isModal ? 'space-y-6' : 'bg-white border border-[#c3c6d1] rounded-2xl shadow-sm p-6 space-y-6' }}">
+<div class="{{ $isModal ? 'flex flex-col gap-6' : 'bg-white border border-[#c3c6d1] rounded-2xl shadow-sm p-6 flex flex-col gap-6' }}">
     {{-- Header Bar --}}
     @if(!$isModal)
         <div class="flex justify-between items-center border-b border-[#eeedf2] pb-4">

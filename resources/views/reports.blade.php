@@ -1,7 +1,7 @@
 <x-app-layout>
     @section('header_title', 'Reports & Analytics')
 
-    <div class="p-container-padding bg-background space-y-6">
+    <div class="p-container-padding bg-background flex flex-col gap-6">
 
         <!-- KPI Summary Bento Grid -->
         <div class="grid grid-cols-1 md:grid-cols-4 gap-gutter">

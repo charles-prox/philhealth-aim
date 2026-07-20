@@ -19,6 +19,7 @@ class DatabaseSeeder extends Seeder
             EmployeeSeeder::class,
             OfficeSeeder::class,
             SignatoryRegistrySeeder::class,
+            ProcurementCategorySeeder::class,
         ]);
     }
 }

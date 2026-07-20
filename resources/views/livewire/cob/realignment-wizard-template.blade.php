@@ -14,7 +14,7 @@
 <div class="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
 
     {{-- LEFT COLUMN: Source → Target Form --}}
-    <div class="xl:col-span-2 space-y-6">
+    <div class="xl:col-span-2 flex flex-col gap-6">
 
         {{-- Active version info banner --}}
         @if($this->activeVersion)

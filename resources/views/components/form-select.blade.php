@@ -69,7 +69,8 @@
         },
 
         get displayLabel() {
-            let selectedArray = Array.isArray(this.selected) ? this.selected : (this.selected ? [this.selected] : []);
+            let isSelectedSet = this.selected !== null && this.selected !== undefined && this.selected !== '';
+            let selectedArray = Array.isArray(this.selected) ? this.selected : (isSelectedSet ? [this.selected] : []);
             
             const findLabel = (val) => {
                 for (const [key, value] of Object.entries(this.options)) {
@@ -87,7 +88,7 @@
                 if (selectedArray.length === 1) return findLabel(selectedArray[0]);
                 return selectedArray.length + ' selected';
             }
-            return this.selected ? findLabel(this.selected) : '{{ $placeholder }}';
+            return isSelectedSet ? findLabel(this.selected) : '{{ $placeholder }}';
         },
 
         select(val) {

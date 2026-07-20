@@ -160,6 +160,14 @@ new class extends Component
                     @endif
                 </span>
             </x-sidebar-link>
+
+            <x-sidebar-link :href="route('admin.category-requests')" :active="request()->routeIs('admin.category-requests')" icon="pending_actions">
+                Category Requests
+            </x-sidebar-link>
+
+            <x-sidebar-link :href="route('admin.categories')" :active="request()->routeIs('admin.categories')" icon="category">
+                Category Registry
+            </x-sidebar-link>
         @endrole
     </nav>
 </aside>

@@ -40,7 +40,7 @@ new #[Layout('layouts.app')] class extends Component
     }
 }; ?>
 
-<div class="p-gutter space-y-6">
+<div class="p-gutter flex flex-col gap-6">
     @section('header_title', 'Unified Approval Desk')
 
     {{-- Metric Cards --}}

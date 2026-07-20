@@ -1,7 +1,7 @@
 <x-app-layout>
     @section('header_title', 'Command Center')
 
-    <div class="p-container-padding bg-background space-y-6">
+    <div class="p-container-padding bg-background flex flex-col gap-6">
 
         {{-- Welcome Banner --}}
         <div class="bg-[#001e40] rounded-xl p-6 flex items-center justify-between overflow-hidden relative shadow-lg">

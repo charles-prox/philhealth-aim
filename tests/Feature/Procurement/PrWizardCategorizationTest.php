@@ -85,14 +85,23 @@ it('blocks advancing when tied to event but date is missing', function () {
         ->assertSet('currentStep', 2);
 });
 
-it('blocks advancing when event date is in the past', function () {
+it('blocks advancing when event date is in the past or is today', function () {
     Volt::test('procurement.end-user-portal')
         ->set('currentStep', 2)
         ->set('form.procurementCategory', 'OFFICE_SUPPLIES')
         ->set('form.isTiedToEvent', true)
         ->set('form.eventDate', now()->subDay()->format('Y-m-d'))
         ->call('nextStep')
-        ->assertHasErrors(['form.eventDate' => 'after_or_equal'])
+        ->assertHasErrors(['form.eventDate' => 'after'])
+        ->assertSet('currentStep', 2);
+
+    Volt::test('procurement.end-user-portal')
+        ->set('currentStep', 2)
+        ->set('form.procurementCategory', 'OFFICE_SUPPLIES')
+        ->set('form.isTiedToEvent', true)
+        ->set('form.eventDate', now()->format('Y-m-d'))
+        ->call('nextStep')
+        ->assertHasErrors(['form.eventDate' => 'after'])
         ->assertSet('currentStep', 2);
 });
 
@@ -102,4 +111,25 @@ it('advances to step 2 when selection is valid from step 1', function () {
         ->call('nextStep')
         ->assertHasNoErrors()
         ->assertSet('currentStep', 2);
+});
+
+it('validates ProcurementFolderForm event dates correctly', function () {
+    $component = new class extends \Livewire\Component {};
+    $form = new \App\Livewire\Forms\ProcurementFolderForm($component, 'form');
+
+    // 1. Valid future range
+    $form->event_range = now()->addDays(2)->format('Y-m-d') . ' to ' . now()->addDays(5)->format('Y-m-d');
+    expect($form->validateEventDates())->toBeTrue();
+    expect($form->event_start_date)->toBe(now()->addDays(2)->format('Y-m-d'));
+    expect($form->event_end_date)->toBe(now()->addDays(5)->format('Y-m-d'));
+
+    // 2. Reject today
+    $form = new \App\Livewire\Forms\ProcurementFolderForm($component, 'form');
+    $form->event_range = now()->format('Y-m-d') . ' to ' . now()->addDays(2)->format('Y-m-d');
+    expect($form->validateEventDates())->toBeFalse();
+
+    // 3. Reject past dates
+    $form = new \App\Livewire\Forms\ProcurementFolderForm($component, 'form');
+    $form->event_range = now()->subDays(2)->format('Y-m-d') . ' to ' . now()->addDays(2)->format('Y-m-d');
+    expect($form->validateEventDates())->toBeFalse();
 });

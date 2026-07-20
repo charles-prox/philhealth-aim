@@ -23,7 +23,7 @@
             </div>
 
             <!-- Modal Body -->
-            <div class="overflow-y-auto px-6 py-5 flex-1 space-y-6">
+            <div class="overflow-y-auto px-6 py-5 flex-1 flex flex-col gap-6">
                 <!-- Metadata Cards -->
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div class="bg-white p-5 border border-[#eeedf2] rounded-xl space-y-3 shadow-xs">

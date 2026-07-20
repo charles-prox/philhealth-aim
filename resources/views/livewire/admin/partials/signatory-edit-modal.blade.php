@@ -20,7 +20,7 @@
             </div>
 
             {{-- Modal Body --}}
-            <div class="overflow-y-auto flex-1 p-6 space-y-6 custom-scrollbar">
+            <div class="overflow-y-auto flex-1 p-6 flex flex-col gap-6 custom-scrollbar">
 
                 {{-- Position Label --}}
                 <div>

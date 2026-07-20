@@ -19,7 +19,7 @@
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 items-stretch">
         {{-- Form inputs --}}
-        <div class="lg:col-span-2 space-y-6">
+        <div class="lg:col-span-2 flex flex-col gap-6">
             
             {{-- Metadata Fields --}}
             <div class="bg-[#f9f9fe] border border-[#eeedf2] p-5 rounded-2xl space-y-4">
@@ -160,6 +160,13 @@
                                 @endforelse
                             </div>
 
+                            @error('basket')
+                                <div class="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl font-bold flex items-center gap-1.5 shadow-2xs">
+                                    <span class="material-symbols-outlined text-[16px] text-red-600">error</span>
+                                    {{ $message }}
+                                </div>
+                            @enderror
+
                             @if(!$inputsDisabled)
                                 <div class="flex justify-start border-t border-[#eeedf2] pt-3">
                                     <button type="button" wire:click="addItemRowToAppLine({{ $selectedAppLineId }})" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#f9f9fe] hover:bg-[#eeedf2] text-[#001e40] border border-[#c3c6d1] hover:border-[#001e40] text-[11px] font-bold rounded-lg shadow-2xs transition-all">
@@ -190,44 +197,54 @@
                 <div class="space-y-4">
                     <!-- Procurement Category Dropdown Element -->
                     <div>
-                        <label class="text-xs font-bold text-on-surface-variant block mb-1">Procurement Category <span class="text-red-600 font-bold">*</span></label>
-                        <select wire:model="form.procurementCategory" class="w-full text-xs p-2 rounded-lg border border-gray-300 bg-white text-gray-900 focus:border-blue-900 outline-none">
-                            <option value="">-- Select Category --</option>
-                            <option value="OFFICE_SUPPLIES">Office Supplies & Stationery</option>
-                            <option value="IT_EQUIPMENT">IT Hardware & Peripherals</option>
-                            <option value="CATERING_EVENTS">Catering, Meals, & Events</option>
-                            <option value="REPAIRS_MAINTENANCE">Vehicle / Building Maintenance</option>
-                            <option value="SERVICES_CONSULTING">General Contractual Services</option>
-                        </select>
-                        @error('form.procurementCategory') <span class="text-red-600 text-[10px] mt-0.5 block font-medium">{{ $message }}</span> @enderror
+                        <x-form-select 
+                            label="Procurement Category" 
+                            placeholder="Select Category..." 
+                            icon="category" 
+                            required
+                            searchable
+                            wire:model="form.procurementCategory" 
+                            :options="$this->categories" 
+                            :disabled="$inputsDisabled" 
+                            :error="$errors->first('form.procurementCategory')"
+                        />
                     </div>
 
-                    <!-- Toggle Checkbox Flag Box -->
-                    <div class="flex flex-col">
-                        <span class="text-xs font-bold text-on-surface-variant block mb-1">Event Scheduling Flag</span>
-                        <label class="inline-flex items-center gap-2 text-xs font-semibold cursor-pointer mt-1 select-none text-gray-900">
-                            <input type="checkbox" wire:model.live="form.isTiedToEvent" class="rounded text-[#001e40] focus:ring-[#001e40] w-4 h-4">
-                            Is this request tied to an event?
-                        </label>
+                    <!-- Event Scheduling Flag -->
+                    <div>
+                        <x-form-select 
+                            label="Is this request tied to an event?" 
+                            placeholder="Select Yes/No..." 
+                            icon="event" 
+                            required
+                            wire:model.live="form.isTiedToEvent" 
+                            :options="[
+                                '1' => 'Yes, scheduled event',
+                                '0' => 'No, regular purchase'
+                            ]" 
+                            :disabled="$inputsDisabled" 
+                            :error="$errors->first('form.isTiedToEvent')"
+                        />
                     </div>
 
                     <!-- Conditional Animated Date Field Input Element -->
                     <div class="transition-all duration-200 {{ $form->isTiedToEvent ? 'opacity-100 scale-100' : 'opacity-40 pointer-events-none' }}">
-                        <label class="text-xs font-bold text-on-surface-variant block mb-1">
-                            Date of Event @if($form->isTiedToEvent) <span class="text-red-600 font-bold">*</span> @endif
-                        </label>
-                        <input type="date" 
-                               wire:model="form.eventDate" 
-                               @if(!$form->isTiedToEvent) disabled @endif
-                               class="w-full text-xs p-2 rounded-lg border border-gray-300 bg-white font-medium focus:border-blue-900 outline-none">
-                        @error('form.eventDate') <span class="text-red-600 text-[10px] mt-0.5 block font-medium">{{ $message }}</span> @enderror
+                        <x-form-input 
+                            type="date"
+                            label="Date of Event"
+                            icon="calendar_month"
+                            :required="$form->isTiedToEvent"
+                            wire:model="form.eventDate"
+                            :disabled="!$form->isTiedToEvent || $inputsDisabled"
+                            :error="$errors->first('form.eventDate')"
+                        />
                     </div>
                 </div>
             </div>
 
             <!-- PR Summary Card -->
             <div class="bg-[#f9f9fe] border border-[#eeedf2] rounded-2xl p-6 flex flex-col justify-between">
-                <div class="space-y-6">
+                <div class="flex flex-col gap-6">
                     <div class="flex items-center gap-2 border-b border-[#eeedf2] pb-3">
                         <div class="w-8 h-8 rounded-lg bg-[#001e40]/10 flex items-center justify-center text-[#001e40]">
                             <span class="material-symbols-outlined text-[18px]">receipt_long</span>

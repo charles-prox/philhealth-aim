@@ -4,7 +4,7 @@
         <p class="text-sm text-gray-500 mt-1">{{ __('Manage your account settings and security preferences') }}</p>
     </div>
 
-    <div class="space-y-6">
+    <div class="flex flex-col gap-6">
         <div class="card p-6 sm:p-8">
             <div class="max-w-xl">
                 <livewire:profile.update-profile-information-form />

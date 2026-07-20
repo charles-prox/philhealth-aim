@@ -94,7 +94,7 @@ new class extends Component
         $this->currentStep = 1;
         $this->form->trackingNumber = $this->generateTrackingNumber();
         $this->form->procurementCategory = '';
-        $this->form->isTiedToEvent = false;
+        $this->form->isTiedToEvent = null;
         $this->form->eventDate = null;
 
         if ($this->folderId) {
@@ -104,8 +104,8 @@ new class extends Component
             $this->form->recommendedById = $folder->recommended_by_id;
             $this->form->approvedById = $folder->approved_by_id;
             $this->form->procurementCategory = $folder->procurement_category ?? '';
-            $this->form->isTiedToEvent = $folder->event_date !== null;
-            $this->form->eventDate = $folder->event_date ? $folder->event_date->format('Y-m-d') : null;
+            $this->form->isTiedToEvent = $folder->event_start_date !== null;
+            $this->form->eventDate = $folder->event_start_date ? $folder->event_start_date->format('Y-m-d') : null;
 
             // Restore basket from pr_items
             foreach ($folder->prItems as $item) {
@@ -462,6 +462,14 @@ new class extends Component
     public function totalBasketValue(): float
     {
         return collect($this->basket)->sum('total_cost');
+    }
+
+    #[Computed]
+    public function categories(): array
+    {
+        return \App\Models\ProcurementCategory::alphabetical()
+            ->pluck('name', 'name')
+            ->toArray();
     }
 }; ?>
 

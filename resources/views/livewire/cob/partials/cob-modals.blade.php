@@ -77,7 +77,7 @@
             </button>
         </div>
 
-        <div class="space-y-6">
+        <div class="flex flex-col gap-6">
             {{-- Drop Zone --}}
             <div class="relative border-2 border-dashed rounded-2xl p-10 text-center transition-all duration-200"
                  :class="isDragging ? 'border-[#001e40] bg-[#f4f3f8]' : 'border-[#c3c6d1] bg-white'">
@@ -255,7 +255,7 @@
             </button>
         </div>
         
-        <div class="space-y-6">
+        <div class="flex flex-col gap-6">
             <livewire:procurement.app-manager :fiscal-year="$appModalYear" :is-modal="true" :key="'app-manager-modal-' . $appModalYear" />
         </div>
     </div>

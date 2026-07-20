@@ -217,7 +217,7 @@ new #[Layout('layouts.app')] class extends Component
     }
 }; ?>
 
-<div class="p-gutter space-y-6">
+<div class="p-gutter flex flex-col gap-6">
     @section('header_title', 'Document Workspace')
 
     {{-- Breadcrumb / Header --}}
@@ -298,7 +298,7 @@ new #[Layout('layouts.app')] class extends Component
         </div>
         
         {{-- RIGHT PANEL: Action Execution Sidebar (col-span-1) --}}
-        <div class="lg:col-span-1 space-y-6">
+        <div class="lg:col-span-1 flex flex-col gap-6">
             
             {{-- Sign Off Action Card --}}
             <div class="bg-white border border-[#c3c6d1] rounded-2xl shadow-sm overflow-hidden">
@@ -306,7 +306,7 @@ new #[Layout('layouts.app')] class extends Component
                     <h3 class="font-bold text-sm text-[#001e40]">Action Execution Panel</h3>
                 </div>
                 
-                <div class="p-6 space-y-6">
+                <div class="p-6 flex flex-col gap-6">
                     @if($task->status === 'PENDING')
                         @if($hasOlderPending)
                             <div class="p-4 bg-amber-50 border border-amber-200 rounded-xl space-y-3 text-xs leading-relaxed text-amber-800">

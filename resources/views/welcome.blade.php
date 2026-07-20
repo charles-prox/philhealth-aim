@@ -53,7 +53,7 @@
                 <!-- Visual Asset / Card -->
                 <div class="flex-1 w-full max-w-sm">
                     <div class="card p-8 bg-white/80 backdrop-blur-sm border-[#001e40]/10 shadow-2xl">
-                        <div class="space-y-6">
+                        <div class="flex flex-col gap-6">
                             <div class="pb-6 border-b border-gray-100 text-center">
                                 <p class="text-[10px] font-black uppercase tracking-widest text-[#799dd6] mb-2">{{ __('Current Status') }}</p>
                                 <div class="inline-flex items-center text-emerald-600 font-bold">
